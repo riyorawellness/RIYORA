@@ -103,9 +103,6 @@ async def consume_verified_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: s
         return False
     if not latest.get("verified"):
         return False
-    if datetime.fromisoformat(latest["expires_at"]) < _now() + timedelta(minutes=10):
-        # Allow a small grace window (10 min) between verify and use.
-        pass
     # Mark consumed so it can't be reused.
     await db.otp_verifications.update_one({"_id": latest["_id"]}, {"$set": {"consumed": True, "verified": False}})
     return True

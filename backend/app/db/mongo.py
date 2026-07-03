@@ -77,6 +77,8 @@ async def seed_company_account() -> None:
 
 
 async def seed_admin() -> None:
+    from app.core.security import verify_password  # local import to avoid cycle
+
     db = get_db()
     existing = await db.admins.find_one({"mobile": settings.ADMIN_MOBILE})
     now = datetime.now(timezone.utc).isoformat()
@@ -90,4 +92,10 @@ async def seed_admin() -> None:
                 "updated_at": now,
                 "deleted_at": None,
             }
+        )
+    elif not verify_password(settings.ADMIN_PASSWORD, existing["password_hash"]):
+        # Ops rotated ADMIN_PASSWORD via env — reflect it.
+        await db.admins.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"password_hash": hash_password(settings.ADMIN_PASSWORD), "updated_at": now}},
         )
