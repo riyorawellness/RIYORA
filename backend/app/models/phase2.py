@@ -1,6 +1,5 @@
 """Phase 2 Pydantic schemas: Programs, Modules, Purchases, Progress, Assessments,
 Certificates, Referral Tree, Bank Details, Settings, Notifications, Profiles."""
-from datetime import date
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, EmailStr

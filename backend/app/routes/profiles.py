@@ -1,4 +1,6 @@
 """Extended user profile — email, dob, gender, address, photo, occupation, alt_contact."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -44,8 +46,6 @@ async def update_my_profile(
     current: dict = Depends(get_current_user),
 ):
     updates = body.model_dump(exclude_none=True)
-    from datetime import datetime, timezone
-
     now = datetime.now(timezone.utc).isoformat()
     doc = await database.profiles.find_one_and_update(
         {"user_membership_id": current["membership_id"], "deleted_at": None},

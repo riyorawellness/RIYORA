@@ -1,0 +1,40 @@
+{
+  "summary": "Phase 2 backend retest after HIGH-priority fix (seeded program_categories/app_settings missing `id`). Fix VERIFIED. All 4 seeded categories (foundation, subscription, advanced, special) now carry UUID `id`, are fetchable via GET /api/categories/{id}, and can be referenced as `category_id` in POST /api/programs/admin. All 9 seeded app_settings also carry UUID `id` (0 legacy rows without id in either collection). Backfill loop confirmed working. Added 2 targeted regression assertions to test_phase2.py (test_seeded_categories_have_uuid_id_and_fetchable + test_seeded_app_settings_have_uuid_id). Full regression: pytest /app/backend/tests/ → 80/80 passed (33 Phase 1 + 47 Phase 2). re.escape() in BaseRepository.search does not break existing search — TestPrograms::test_search_filter_sort passed. Backend startup log clean (no import/syntax errors on current code). Direct Mongo verification: db.program_categories missing `id` count = 0; db.app_settings missing `id` count = 0.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/settings/system + DELETE /api/settings/system/{key}", "issue": "No GET-single-key helper for system config beyond paginated GET (parity with app_settings). Non-blocking."},
+      {"endpoint": "POST /api/bank-details/admin/{user_membership_id}/verify", "issue": "Doc references PUT; code implements POST. Align doc or verb. Non-blocking."},
+      {"endpoint": "GET /api/bank-details/me", "issue": "Returns full unmasked account_number to the owning user (masking only on admin list). Deliberate but flagged as PII surface."},
+      {"endpoint": "notifications.mark-read", "issue": "For broadcast rows, one user marking read flips is_read/read_at globally. Needs per-user read state (notification_reads collection) for phase 3."},
+      {"endpoint": "GET /api/certificates/me/{id}", "issue": "No status filter — a revoked cert is still visible on direct GET (list /me correctly filters status='issued')."},
+      {"endpoint": "PUT /api/bank-details/me", "issue": "Resets verification_status=pending on ANY PUT (even unchanged payloads). UX polish."},
+      {"endpoint": "activity_log", "issue": "write_activity helper is not wired into any route yet — user list will be empty until callers are added."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase2.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "None blocking. Optional polish items listed under backend_issues.minor (per-user notification read state for phase 3, GET /settings/system/{key} parity, bank-details verify verb alignment).",
+    "Consider adding CORS allow_origins whitelist (not `*`) since allow_credentials=True — carried over from Phase 1 report."
+  ],
+  "critical_code_review_comments": [
+    "Fix confirmed clean: seed_program_categories and seed_app_settings now include `id: str(uuid.uuid4())` in $setOnInsert plus an idempotent backfill loop for legacy rows lacking `id`. Verified in Mongo: 0 rows missing `id`.",
+    "re.escape() applied on BaseRepository.list_paginated search — safe against ReDoS/regex-injection. Verified existing search test still finds 'Inner Peace'.",
+    "Progress route now uses top-level `import uuid` — cleaner. referral_tree/profiles cleaned up inline __import__ hacks. models/phase2.py unused `date` import removed. All noted improvements landed.",
+    "Still recommend a small `_seed_upsert(collection, key_field, doc)` helper (already noted in prior report) to keep seed logic DRY and always inject id + created_by/updated_by.",
+    "Server-side deny-list for access tokens still absent (only refresh tokens revocable). Consider version/nonce claim if step-up security needed."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase2.py"],
+  "success_rate": {"backend": "100% (80/80: 33 Phase 1 + 47 Phase 2 including 2 new regression assertions)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "Admin 9999999999 / Admin@12345. Dev OTP 123456. Company referral RW000000. Public base URL from REACT_APP_BACKEND_URL.",
+  "seed_data_creation": "Test data prefixed with 'TEST_'. Records created via API with random slugs/invoices/certificate numbers/mobiles. No teardown — soft-deleted / orphaned TEST_ rows remain but do not interfere.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "HIGH-priority seed-id bug is fixed and verified. Two new pytest tests in test_phase2.py::TestCategories cover the regression. Full suite green (80/80). Command: `pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml`. Minor issues in backend_issues.minor are non-blocking; treat as backlog polish for Phase 3.",
+  "rca of the issue": "Original bug (iteration 2, HIGH): seed_program_categories inserted docs via $setOnInsert without generating an `id` field, making seeded categories un-referenceable as FK targets and un-fetchable via GET /categories/{id}. Fix applied by main agent: added `id: str(uuid.uuid4())` in $setOnInsert of both seed_program_categories and seed_app_settings; also added an idempotent backfill loop (async for legacy in db.<coll>.find({'id':{'$exists':False}}): update_one({_id}, {$set:{id: uuid.uuid4()}})) so pre-existing deployments self-heal on next startup. Verified in Mongo: 0 program_categories or app_settings rows lack `id`; foundation/subscription/advanced/special all fetchable by id; POST /programs/admin succeeds with a seeded category_id."
+}

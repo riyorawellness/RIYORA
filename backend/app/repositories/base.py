@@ -4,6 +4,7 @@ Every Phase 2 route uses this to keep controllers thin.
 """
 from datetime import datetime, timezone
 from typing import Any
+import re
 import uuid
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -97,7 +98,7 @@ class BaseRepository:
         query: dict[str, Any] = {"deleted_at": None, **(filters or {})}
 
         if search and self.searchable_fields:
-            regex = {"$regex": search, "$options": "i"}
+            regex = {"$regex": re.escape(search), "$options": "i"}
             query["$or"] = [{f: regex} for f in self.searchable_fields]
 
         sort_spec = self._parse_sort(sort or self.default_sort)

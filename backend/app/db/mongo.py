@@ -5,6 +5,7 @@ listed in the requirements: users, admins, profiles, memberships,
 otp_verifications, refresh_tokens, settings, notifications, audit_logs.
 """
 from datetime import datetime, timezone
+import uuid
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
@@ -51,48 +52,35 @@ async def create_indexes() -> None:
     await db.audit_logs.create_index("actor_id")
 
     # ----- Phase 2 -----
-    # profiles (extended user info)
     await db.profiles.create_index("user_membership_id", unique=True)
-    # program categories
     await db.program_categories.create_index("slug", unique=True)
     await db.program_categories.create_index("order_index")
-    # programs
     await db.programs.create_index("slug", unique=True)
     await db.programs.create_index("category_id")
     await db.programs.create_index("is_active")
     await db.programs.create_index("order_index")
-    # program modules
     await db.program_modules.create_index([("program_id", 1), ("module_number", 1)], unique=True)
     await db.program_modules.create_index("order_index")
-    # purchases
     await db.program_purchases.create_index([("user_membership_id", 1), ("program_id", 1)])
     await db.program_purchases.create_index("invoice_number", unique=True)
     await db.program_purchases.create_index("expiry_date")
-    # progress
     await db.program_progress.create_index(
         [("user_membership_id", 1), ("program_id", 1)], unique=True
     )
-    # assessments
     await db.assessments.create_index("module_id", unique=True)
     await db.assessments.create_index("program_id")
     await db.assessment_results.create_index([("user_membership_id", 1), ("assessment_id", 1)])
-    # certificates
     await db.certificates.create_index("certificate_number", unique=True)
     await db.certificates.create_index([("user_membership_id", 1), ("program_id", 1)])
-    # referral tree
     await db.referral_tree.create_index("user_membership_id", unique=True)
     await db.referral_tree.create_index("sponsor_membership_id")
     await db.referral_tree.create_index("level")
-    # bank details
     await db.bank_details.create_index("user_membership_id", unique=True)
-    # settings
     await db.user_settings.create_index([("user_membership_id", 1), ("key", 1)], unique=True)
     await db.app_settings.create_index("key", unique=True)
     await db.system_configuration.create_index("key", unique=True)
-    # notifications
     await db.notifications.create_index([("user_membership_id", 1), ("created_at", -1)])
     await db.notifications.create_index("is_broadcast")
-    # activity log
     await db.activity_log.create_index("actor_membership_id")
     await db.activity_log.create_index("created_at")
 
@@ -140,12 +128,10 @@ async def seed_admin() -> None:
             }
         )
     elif not verify_password(settings.ADMIN_PASSWORD, existing["password_hash"]):
-        # Ops rotated ADMIN_PASSWORD via env — reflect it.
         await db.admins.update_one(
             {"_id": existing["_id"]},
             {"$set": {"password_hash": hash_password(settings.ADMIN_PASSWORD), "updated_at": now}},
         )
-
 
 
 _DEFAULT_CATEGORIES = [
@@ -180,6 +166,7 @@ async def seed_program_categories() -> None:
             {"slug": c["slug"]},
             {
                 "$setOnInsert": {
+                    "id": str(uuid.uuid4()),
                     **c,
                     "is_active": True,
                     "created_at": now,
@@ -189,6 +176,11 @@ async def seed_program_categories() -> None:
             },
             upsert=True,
         )
+    # Backfill: any legacy rows without `id` get one assigned.
+    async for legacy in db.program_categories.find({"id": {"$exists": False}}):
+        await db.program_categories.update_one(
+            {"_id": legacy["_id"]}, {"$set": {"id": str(uuid.uuid4())}}
+        )
 
 
 async def seed_app_settings() -> None:
@@ -197,8 +189,20 @@ async def seed_app_settings() -> None:
     for s in _DEFAULT_APP_SETTINGS:
         await db.app_settings.update_one(
             {"key": s["key"]},
-            {"$setOnInsert": {**s, "created_at": now, "updated_at": now, "deleted_at": None}},
+            {
+                "$setOnInsert": {
+                    "id": str(uuid.uuid4()),
+                    **s,
+                    "created_at": now,
+                    "updated_at": now,
+                    "deleted_at": None,
+                }
+            },
             upsert=True,
+        )
+    async for legacy in db.app_settings.find({"id": {"$exists": False}}):
+        await db.app_settings.update_one(
+            {"_id": legacy["_id"]}, {"$set": {"id": str(uuid.uuid4())}}
         )
 
 
@@ -210,6 +214,7 @@ async def seed_referral_tree_root() -> None:
     now = datetime.now(timezone.utc).isoformat()
     await db.referral_tree.insert_one(
         {
+            "id": str(uuid.uuid4()),
             "user_membership_id": settings.COMPANY_MEMBERSHIP_ID,
             "sponsor_membership_id": None,
             "level": 0,

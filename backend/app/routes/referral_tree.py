@@ -2,6 +2,8 @@
 
 NOTE: NO commission calculation in this phase — only the tree/hierarchy.
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -139,7 +141,7 @@ async def admin_update_tree(
     updates = body.model_dump(exclude_none=True)
     node = await database.referral_tree.find_one_and_update(
         {"user_membership_id": membership_id, "deleted_at": None},
-        {"$set": {**updates, "updated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), "updated_by": admin["mobile"]}},
+        {"$set": {**updates, "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": admin["mobile"]}},
         return_document=True,
     )
     if not node:

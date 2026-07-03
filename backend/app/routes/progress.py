@@ -1,5 +1,6 @@
 """Program Progress — user get + update (auto-upsert), admin read + update."""
 from datetime import datetime, timezone
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -26,7 +27,7 @@ async def _upsert_progress(
     now = datetime.now(timezone.utc).isoformat()
     # Defaults applied only on insert (do NOT overlap with $set fields).
     set_on_insert = {
-        "id": __import__("uuid").uuid4().hex,
+        "id": uuid.uuid4().hex,
         "user_membership_id": user_id,
         "program_id": program_id,
         "created_at": now,
