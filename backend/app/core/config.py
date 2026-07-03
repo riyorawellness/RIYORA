@@ -35,6 +35,24 @@ class Settings:
     COMPANY_MEMBERSHIP_ID: str = os.environ.get("COMPANY_MEMBERSHIP_ID", "RW000000")
     COMPANY_NAME: str = os.environ.get("COMPANY_NAME", "RIYORA Wellness")
 
+    # Storage / files
+    EMERGENT_LLM_KEY: str = os.environ.get("EMERGENT_LLM_KEY", "")
+    APP_NAME: str = os.environ.get("APP_NAME", "riyora-wellness")
+    FILE_TOKEN_TTL_SEC: int = int(os.environ.get("FILE_TOKEN_TTL_SEC", "300"))
+
+    # Commerce defaults (also stored in cms_settings and can be overridden by admin)
+    DEFAULT_GST_PERCENT: float = float(os.environ.get("DEFAULT_GST_PERCENT", "18"))
+    DEFAULT_VALIDITY_DAYS: int = int(os.environ.get("DEFAULT_VALIDITY_DAYS", "365"))
+    COMMISSION_L1_PERCENT: float = float(os.environ.get("COMMISSION_L1_PERCENT", "10"))
+    COMMISSION_L2_PERCENT: float = float(os.environ.get("COMMISSION_L2_PERCENT", "5"))
+    COMMISSION_L3_PERCENT: float = float(os.environ.get("COMMISSION_L3_PERCENT", "2"))
+    ACTIVITY_SESSIONS_REQUIRED: int = int(os.environ.get("ACTIVITY_SESSIONS_REQUIRED", "4"))
+
+    # Razorpay (mocked by default)
+    RAZORPAY_MOCK_MODE: bool = os.environ.get("RAZORPAY_MOCK_MODE", "true").lower() == "true"
+    RAZORPAY_KEY_ID: str = os.environ.get("RAZORPAY_KEY_ID", "")
+    RAZORPAY_KEY_SECRET: str = os.environ.get("RAZORPAY_KEY_SECRET", "")
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -30,6 +30,17 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - Audit logs, indexes, exception handlers.
 - test_credentials.md + README + Swagger.
 
+## Delivered on 2026-07-03 (Phase 2 — Database & Backend)
+- New collections: profiles, program_categories, programs, program_modules, program_purchases, program_progress, assessments, assessment_results, certificates, referral_tree, bank_details, user_settings, app_settings, system_configuration, notifications, activity_log.
+- Repository pattern (`app/repositories/base.py`) with generic pagination/search/sort/soft-delete.
+- CRUD endpoints for every entity (user + admin), pagination + search + filter + sort.
+- Referral tree materialization on register: user rows inserted with computed depth level.
+- Extended profile (email/dob/gender/address/photo/occupation/alt_contact).
+- Assessments with server-side scoring (no attempt-limit business rule — Phase 3).
+- Bank details with masked-list view for admin.
+- App settings public endpoint for PWA bootstrap.
+- Full Swagger docs at `/docs`.
+
 ## Backlog (Phase 2+)
 ### P0 — high impact
 - Programs listing (Inner Peace subscription + Levels 1–5) with per-program price/discount/GST/validity (admin-editable).

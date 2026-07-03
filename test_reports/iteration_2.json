@@ -1,0 +1,56 @@
+{
+  "summary": "Phase 2 backend regression complete. 45 new Phase 2 tests + 33 Phase 1 regression tests = 78/78 passing. Covered: app_settings public (seeded defaults verified: default_gst_percent=18, default_validity_days=365, activity_sessions_required=4, commission_l1_percent=10), program_categories seeded (4 defaults) + admin CRUD + duplicate slug 409 + user list, programs full CRUD (dup-slug 409, invalid category 400, search/filter/sort, activate/deactivate/soft-delete + 404 after delete), program_modules (FK, unique (program_id, module_number)), assessments (correct_index range 400, duplicate module 409, submit computes marks+passed, wrong answer count 400, results/me), purchases (FK user+program, unique invoice 409, /me filter), progress upsert idempotency + persistence (single row), certificates (unique cert_number 409, revoke via PUT, /me only issued), referral_tree (auto-insert on register with computed level, /me downline with owner_name, /me/upline chain, admin filter by sponsor/level), bank_details (IFSC regex 422, verification resets to pending on change, admin verify, masked account list), settings (user upsert, app admin upsert, system 401/403/200), notifications (personal + broadcast, unread-count, mark-read, admin is_broadcast filter), profiles (upsert on PUT, GET default shape), activity_log (admin paginated + user /me scoped), cross-role guards (user→/admin=403, admin→/me=403), pagination metadata, and Phase 1 regression (validate-referral, admin login).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "seed_program_categories (app/db/mongo.py)", "issue": "Seeded default categories (foundation/subscription/advanced/special) are inserted via $setOnInsert without a uuid `id` field. As a result, `GET /api/categories` returns them but they cannot be used as `category_id` when creating a program (invalid FK) nor fetched via `GET /api/categories/{id}`. All Phase 2 program creation would fail against seed data unless admin creates their own category first. Fix: add `id: str(uuid.uuid4())` inside the $setOnInsert dict in seed_program_categories() so seed rows carry a stable UUID id (idempotent). Same seed also does not set `created_by`/`updated_by` (minor).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "PUT /api/settings/system + DELETE /api/settings/system/{key}", "issue": "test_credentials.md documents them under `/api/settings/system` and code exposes `PUT /settings/system` (single upsert) — but there is no GET-single-key or list-by-search helper for system config beyond the paginated GET. Consistent with app_settings pattern; consider adding GET /system/{key} for parity."},
+      {"endpoint": "POST /api/bank-details/admin/{user_membership_id}/verify", "issue": "Doc/tests spec referred to '/verify' as PUT — code implements it as POST. Both are semantically fine but codified doc mentions PUT. Consider aligning or documenting."},
+      {"endpoint": "GET /api/settings/app", "issue": "Returns dict-of-key:value (not the full seeded doc structure). Cannot inspect descriptions publicly. Not blocking — deliberate for PWA bootstrap."},
+      {"endpoint": "GET /api/bank-details/me", "issue": "Returns the raw doc including the *full* account_number to the owning user (masking is only on admin list). Acceptable per code comment but worth flagging as PII surface."},
+      {"endpoint": "referral_tree (admin filter)", "issue": "GET /api/referral-tree/admin?status=... filters by literal 'status' field on tree row — but tree rows only get `status='active'` at register. Suspending is possible via PUT admin, but no test coverage in current suite. Non-blocking."},
+      {"endpoint": "profiles.py — PUT /me on user already having a seeded row from register", "issue": "Registration inserts a profile row with created_at/updated_at. The subsequent PUT /me uses find_one_and_update with $setOnInsert on user_membership_id — but since a row already exists, $setOnInsert is skipped (correct behaviour). No bug, just confirming."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/phase2_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix seed_program_categories in /app/backend/app/db/mongo.py to include `id: str(uuid.uuid4())` in $setOnInsert so seeded categories carry a UUID id (blocks Phase 2 program creation against seeded categories). Same for seed_app_settings for consistency (not blocking today because app_settings are keyed by `key`).",
+    "Optional: add GET /api/settings/system/{key} for parity with app_settings.",
+    "Optional: align bank-details verify method (POST vs PUT) with documentation."
+  ],
+  "critical_code_review_comments": [
+    "seed_program_categories inserts default categories without generating a UUID `id` field — makes them unusable as FK targets. Fix: `\"$setOnInsert\": {\"id\": str(uuid.uuid4()), **c, ...}` (import uuid at top).",
+    "seed_admin/seed_program_categories/seed_app_settings/seed_referral_tree_root all use raw update_one/insert_one instead of going through BaseRepository, leading to missing common fields (id, created_by/updated_by). Consider a small `_seed_upsert(collection, key_field, doc)` helper that adds these consistently.",
+    "referral_tree admin PUT uses `__import__('datetime').datetime.now(...)` inline — awkward. Just add the standard `from datetime import datetime, timezone` at top of the file and call directly.",
+    "progress upsert helper uses `__import__('uuid').uuid4().hex` inline; prefer top-level `import uuid`.",
+    "app/models/phase2.py imports `date` from datetime but never uses it.",
+    "Cross-role check depends on `role` claim in JWT; if a future refresh preserves a compromised token, no server-side deny-list exists for access tokens (only refresh tokens are revocable). Consider a version/nonce claim if needed.",
+    "BaseRepository.list_paginated regex uses raw `search` string — if a user submits a regex-metacharacter payload (e.g. `.*` or backtracking pattern) it goes straight to Mongo. Consider re.escape() before wrapping in $regex to prevent ReDoS and unintended matches.",
+    "notifications.mark-read updates the shared `is_read`/`read_at` fields even for broadcast rows — meaning one user marking a broadcast as read flips it to read for everyone. For a per-user read state, a separate notification_reads collection keyed by (user_membership_id, notification_id) is needed. Acceptable for phase 2 (schema-only), but flag for phase 3.",
+    "Certificates route (/me) filters by status='issued' — good — but /me/{certificate_id} uses get_by({id, user_membership_id}) without status filter, so a revoked cert would still be visible on direct GET. Minor.",
+    "Bank details PUT resets verification_status=pending on ANY PUT including unchanged payloads — could be surprising UX. Consider comparing new vs stored fields before resetting.",
+    "activity_log `write_activity` helper is exposed but not actually called from any route (no writes wired). Route reads are functional but list will be empty until callers are added in later phases.",
+    "server.py CORS still uses `allow_credentials=True` with wildcard `*` origins (from Phase 1). Same finding as Phase 1 report."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase2.py"
+  ],
+  "success_rate": {"backend": "100% (78/78: 33 Phase 1 + 45 Phase 2)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "Admin 9999999999 / Admin@12345. Dev OTP 123456. Company referral RW000000. Fresh 10-digit mobiles (6-9 prefix) generated per test.",
+  "seed_data_creation": "Test data prefixed with 'TEST_'. All records created via API with random slugs/invoices/certificate numbers/mobiles. No teardown implemented — soft-deleted or orphaned test rows remain in Mongo but do not interfere with future runs.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Full regression at /app/backend/tests/ — run: `pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml`. Phase 2 file is /app/backend/tests/test_phase2.py. Uses REACT_APP_BACKEND_URL from frontend/.env (public URL). Note the seeded-categories-missing-id bug — if main agent hasn't fixed it, all seed-referenced Phase 2 tests still pass because the test fixture creates its own category. After the fix, add a test asserting `foundation` category has `id` in GET /categories.",
+  "rca of the issue": "Seed function `seed_program_categories` in /app/backend/app/db/mongo.py inserts default category docs via update_one($setOnInsert) without generating a `id: str(uuid.uuid4())` field. The BaseRepository.create() adds `id` automatically for admin-created rows but the seed path bypasses it. Consequence: `GET /api/categories/{id}` on foundation/subscription/advanced/special returns 404, and users cannot reference them as `category_id` when creating a Program (which enforces the FK on `id`). Reproduction: `curl $API/categories -H \"Authorization: Bearer <user_token>\"` — items lack `id`. Mitigation: add `\"id\": str(uuid.uuid4())` inside the `$setOnInsert` dict in `seed_program_categories()` (and optionally seed_app_settings for consistency). Same rows will need a one-time backfill script (e.g. `db.program_categories.updateMany({id:{$exists:false}}, [{$set:{id:{$toString:{$rand:...}}}}])` or a bootstrap task) so existing deployments don't have to be wiped."
+}

@@ -142,6 +142,41 @@ async def register(body: RegisterRequest, database: AsyncIOMotorDatabase = Depen
         }
     )
 
+    # 5b. Materialise into referral_tree with computed depth level from root.
+    sponsor_tree = await database.referral_tree.find_one(
+        {"user_membership_id": sponsor["membership_id"]}
+    )
+    depth = (sponsor_tree.get("level", 0) if sponsor_tree else 0) + 1
+    await database.referral_tree.insert_one(
+        {
+            "user_membership_id": membership_id,
+            "sponsor_membership_id": sponsor["membership_id"],
+            "level": depth,
+            "joining_date": now,
+            "status": "active",
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+    )
+
+    # 5c. Create empty profile document.
+    await database.profiles.insert_one(
+        {
+            "user_membership_id": membership_id,
+            "email": None,
+            "dob": None,
+            "gender": None,
+            "address": None,
+            "profile_photo_url": None,
+            "occupation": None,
+            "alt_contact": None,
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+    )
+
     # 6. Audit log
     await log_action(database, actor_id=membership_id, action="register", entity="user", entity_id=membership_id)
 

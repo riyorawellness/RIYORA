@@ -50,6 +50,52 @@ async def create_indexes() -> None:
     await db.audit_logs.create_index("created_at")
     await db.audit_logs.create_index("actor_id")
 
+    # ----- Phase 2 -----
+    # profiles (extended user info)
+    await db.profiles.create_index("user_membership_id", unique=True)
+    # program categories
+    await db.program_categories.create_index("slug", unique=True)
+    await db.program_categories.create_index("order_index")
+    # programs
+    await db.programs.create_index("slug", unique=True)
+    await db.programs.create_index("category_id")
+    await db.programs.create_index("is_active")
+    await db.programs.create_index("order_index")
+    # program modules
+    await db.program_modules.create_index([("program_id", 1), ("module_number", 1)], unique=True)
+    await db.program_modules.create_index("order_index")
+    # purchases
+    await db.program_purchases.create_index([("user_membership_id", 1), ("program_id", 1)])
+    await db.program_purchases.create_index("invoice_number", unique=True)
+    await db.program_purchases.create_index("expiry_date")
+    # progress
+    await db.program_progress.create_index(
+        [("user_membership_id", 1), ("program_id", 1)], unique=True
+    )
+    # assessments
+    await db.assessments.create_index("module_id", unique=True)
+    await db.assessments.create_index("program_id")
+    await db.assessment_results.create_index([("user_membership_id", 1), ("assessment_id", 1)])
+    # certificates
+    await db.certificates.create_index("certificate_number", unique=True)
+    await db.certificates.create_index([("user_membership_id", 1), ("program_id", 1)])
+    # referral tree
+    await db.referral_tree.create_index("user_membership_id", unique=True)
+    await db.referral_tree.create_index("sponsor_membership_id")
+    await db.referral_tree.create_index("level")
+    # bank details
+    await db.bank_details.create_index("user_membership_id", unique=True)
+    # settings
+    await db.user_settings.create_index([("user_membership_id", 1), ("key", 1)], unique=True)
+    await db.app_settings.create_index("key", unique=True)
+    await db.system_configuration.create_index("key", unique=True)
+    # notifications
+    await db.notifications.create_index([("user_membership_id", 1), ("created_at", -1)])
+    await db.notifications.create_index("is_broadcast")
+    # activity log
+    await db.activity_log.create_index("actor_membership_id")
+    await db.activity_log.create_index("created_at")
+
 
 async def seed_company_account() -> None:
     """Create the reserved RW000000 company membership if missing.
@@ -99,3 +145,78 @@ async def seed_admin() -> None:
             {"_id": existing["_id"]},
             {"$set": {"password_hash": hash_password(settings.ADMIN_PASSWORD), "updated_at": now}},
         )
+
+
+
+_DEFAULT_CATEGORIES = [
+    {"name": "Foundation", "slug": "foundation", "order_index": 1,
+     "description": "Beginner-friendly wellness practices."},
+    {"name": "Subscription", "slug": "subscription", "order_index": 2,
+     "description": "Recurring programs like Inner Peace."},
+    {"name": "Advanced", "slug": "advanced", "order_index": 3,
+     "description": "Progressive spiritual growth (Levels 1-5)."},
+    {"name": "Special", "slug": "special", "order_index": 4,
+     "description": "Workshops, retreats and limited offerings."},
+]
+
+_DEFAULT_APP_SETTINGS = [
+    {"key": "default_gst_percent", "value": 18, "description": "Default GST % applied to purchases"},
+    {"key": "default_validity_days", "value": 365, "description": "Default program validity in days"},
+    {"key": "activity_sessions_required", "value": 4, "description": "Sessions required per cycle"},
+    {"key": "commission_l1_percent", "value": 10, "description": "Referral commission L1 (%)"},
+    {"key": "commission_l2_percent", "value": 5, "description": "Referral commission L2 (%)"},
+    {"key": "commission_l3_percent", "value": 2, "description": "Referral commission L3 (%)"},
+    {"key": "support_email", "value": "care@riyorawellness.com", "description": "Support email"},
+    {"key": "support_phone", "value": "+91-9999999999", "description": "Support phone"},
+    {"key": "app_version", "value": "1.0.0", "description": "Current app version"},
+]
+
+
+async def seed_program_categories() -> None:
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    for c in _DEFAULT_CATEGORIES:
+        await db.program_categories.update_one(
+            {"slug": c["slug"]},
+            {
+                "$setOnInsert": {
+                    **c,
+                    "is_active": True,
+                    "created_at": now,
+                    "updated_at": now,
+                    "deleted_at": None,
+                }
+            },
+            upsert=True,
+        )
+
+
+async def seed_app_settings() -> None:
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    for s in _DEFAULT_APP_SETTINGS:
+        await db.app_settings.update_one(
+            {"key": s["key"]},
+            {"$setOnInsert": {**s, "created_at": now, "updated_at": now, "deleted_at": None}},
+            upsert=True,
+        )
+
+
+async def seed_referral_tree_root() -> None:
+    """Ensure the company root exists in referral_tree collection as level 0."""
+    db = get_db()
+    if await db.referral_tree.find_one({"user_membership_id": settings.COMPANY_MEMBERSHIP_ID}):
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    await db.referral_tree.insert_one(
+        {
+            "user_membership_id": settings.COMPANY_MEMBERSHIP_ID,
+            "sponsor_membership_id": None,
+            "level": 0,
+            "joining_date": now,
+            "status": "active",
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+    )
