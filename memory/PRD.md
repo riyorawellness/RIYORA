@@ -41,6 +41,20 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - App settings public endpoint for PWA bootstrap.
 - Full Swagger docs at `/docs`.
 
+## Delivered on 2026-07-03 (Phase 3 — Mobile PWA UI)
+- Complete mobile-first PWA UI in `/app/frontend/src/` — 22 screens including Splash, Welcome, Auth (Login/Register/Forgot), Home, Programs, ProgramDetail, ModulePlayer (video/audio/pdf with watermark), Assessment quiz, Certificate, Refer & Earn, Team, Bank Details, Profile, Notifications, Settings, Offline.
+- New royal-blue/gold theme with Fraunces + Manrope typography and 5-tab bottom navigation.
+- Mock data (`/app/frontend/src/mock/data.js`) for programs/modules/quiz/team/notifications so UI works standalone.
+- Real backend integration for auth flows + bank-details.
+
+## Delivered on 2026-07-03 (Phase 4 — Programs Engine)
+- `app/services/program_engine.py` — sequence gate, module unlock, progress recompute, auto-cert issue, dashboard categorisation, continue-learning.
+- `app/services/validity.py` — expiry computation, active-purchase lookup, opportunistic expire-past-purchases.
+- `app/utils/file_token.py` + `app/routes/content.py` — signed content JWT + `/content/token` + `/content/stream/{token}` redirect (302, inline, no-store) with watermark payload.
+- Enhanced routes: programs (`/me/dashboard`, `/me/continue-learning`, `/{id}/eligibility`, `/{id}/status`, `/{id}/purchase`), modules (`/me/by-program/{id}`), progress (`/me/{pid}/module/{mid}/complete`), assessments (attempts limit + randomize + auto-cert + correct_index stripping).
+- New `level` field on programs (0=subscription, 1-5=levels) driving the sequence gate.
+- 98/98 backend tests passing.
+
 ## Backlog (Phase 2+)
 ### P0 — high impact
 - Programs listing (Inner Peace subscription + Levels 1–5) with per-program price/discount/GST/validity (admin-editable).
