@@ -135,11 +135,7 @@ async def team(
 # ---------------- Admin --------------------------------------------------
 
 
-@router.get("/admin/settings")
-async def admin_settings_get(
-    database: AsyncIOMotorDatabase = Depends(db),
-    _admin: dict = Depends(get_current_admin),
-):
+async def _read_referral_settings(database: AsyncIOMotorDatabase) -> dict:
     keys = [
         "commission_l1_percent",
         "commission_l2_percent",
@@ -155,7 +151,6 @@ async def admin_settings_get(
     for k in keys:
         row = await database.app_settings.find_one({"key": k, "deleted_at": None})
         out[k] = (row or {}).get("value")
-    # Defaults from env
     out.setdefault("commission_l1_percent", settings.COMMISSION_L1_PERCENT)
     out.setdefault("commission_l2_percent", settings.COMMISSION_L2_PERCENT)
     out.setdefault("commission_l3_percent", settings.COMMISSION_L3_PERCENT)
@@ -163,6 +158,14 @@ async def admin_settings_get(
     out.setdefault("grace_period_days", 3)
     out.setdefault("activity_sessions_required", settings.ACTIVITY_SESSIONS_REQUIRED)
     return out
+
+
+@router.get("/admin/settings")
+async def admin_settings_get(
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    return await _read_referral_settings(database)
 
 
 @router.put("/admin/settings")
@@ -184,4 +187,4 @@ async def admin_settings_put(
             },
             upsert=True,
         )
-    return await admin_settings_get(database, _admin={})  # type: ignore[arg-type]
+    return await _read_referral_settings(database)

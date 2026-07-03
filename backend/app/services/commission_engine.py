@@ -185,7 +185,11 @@ async def summarise_user(db: AsyncIOMotorDatabase, membership_id: str) -> dict:
         "rejected": {"amount": 0.0, "count": 0},
     }
     async for row in db.commissions.aggregate(pipeline):
-        out[row["_id"]] = {"amount": round(row["amount"] or 0, 2), "count": row["count"]}
+        out.setdefault(row["_id"] or "unknown", {"amount": 0.0, "count": 0})
+        out[row["_id"] or "unknown"] = {
+            "amount": round(row["amount"] or 0, 2),
+            "count": row["count"],
+        }
 
     lifetime = round(
         out["pending"]["amount"] + out["approved"]["amount"] + out["paid"]["amount"], 2
