@@ -159,3 +159,13 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Tests**: `/app/backend/tests/test_phase9.py` — 19/19 pass covering BRV, lockout, headers, health, SEO, regressions.
 - **Deps added**: `slowapi 0.1.10`, `openpyxl 3.1.5` (from P8).
 - **BRV verdict at go-live**: **PASS · 36/36 rules · overall verdict PASS**.
+
+## Delivered on 2026-07-03 (Phase 10 — Legal & Support Pages)
+- **Welcome consent gate** — clickable Terms & Conditions and Privacy Policy links plus a mandatory "I have read and agree" checkbox. Create-account and Sign-in buttons blocked with a toast warning until the checkbox is ticked. App version + copyright footer.
+- **User-facing legal pages** — universal `LegalPage.jsx` component routed at `/legal/:slug` renders any published CMS page (title, last-updated date, markdown body, back button, brand footer). Pages: `privacy`, `terms`, `data-security`, `faq`, `contact`. React-markdown added.
+- **Profile "Legal & Support" section** — five menu items linking to `/legal/*`. Profile footer displays App Version + Copyright.
+- **Contact CTA** — `mailto:info@riyorawellness.com?subject=Support%20Request%20-%20RIYORA%20Wellness` prominently rendered on Contact / FAQ / Support pages.
+- **Public system endpoint** — `/api/system/public` (no auth) exposes `application_version`, `support_email`, `company_name` etc. Cached client-side by `useSystemInfo()` hook (30 s TTL).
+- **CMS seed** — `db/seed_legal.py` inserts 5 placeholder pages on startup if not already present (never overwrites admin edits). `CMS_SLUGS` extended with `data-security`.
+- **Admin CMS** — AdminCMS auto-discovers the new `data-security` slug from `/admin/cms/pages`. AdminSystem already has `application_version` + `support_email` fields.
+- **Tests**: `/app/backend/tests/test_phase10.py` — 12/12 pytest cases pass; full frontend E2E green (all 5 pages + profile section + Welcome consent gate + toast + navigation gating).

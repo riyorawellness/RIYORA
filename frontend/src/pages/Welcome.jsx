@@ -10,13 +10,6 @@ export default function Welcome() {
   const [agreed, setAgreed] = useState(false);
   const sys = useSystemInfo();
 
-  const guard = (e) => {
-    if (!agreed) {
-      e.preventDefault();
-      toast.warning("Please accept the Terms & Conditions and Privacy Policy to continue.");
-    }
-  };
-
   return (
     <div className="min-h-screen bg-white">
       <div className="rw-phone rw-safe-top rw-safe-bottom flex min-h-screen flex-col px-6">
@@ -97,34 +90,45 @@ export default function Welcome() {
           </div>
 
           <div className="mt-5 space-y-3">
-            <Link
-              to="/register"
-              onClick={guard}
-              aria-disabled={!agreed}
-              className={agreed ? "" : "pointer-events-auto"}
-              data-testid={TID.welcomeCtaRegister}
+            <div
+              onClickCapture={(e) => {
+                if (!agreed) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  toast.warning(
+                    "Please accept the Terms & Conditions and Privacy Policy to continue."
+                  );
+                }
+              }}
             >
-              <button
-                className={`rw-btn-pill rw-btn-primary w-full ${agreed ? "" : "cursor-not-allowed opacity-50"}`}
-                disabled={!agreed}
-                data-testid="welcome-create-account-btn"
+              <Link
+                to="/register"
+                tabIndex={agreed ? 0 : -1}
+                data-testid={TID.welcomeCtaRegister}
               >
-                Create account <ArrowRight className="h-4 w-4" />
-              </button>
-            </Link>
-            <Link
-              to="/login"
-              onClick={guard}
-              data-testid={TID.welcomeCtaLogin}
-            >
-              <button
-                className={`rw-btn-pill rw-btn-ghost w-full ${agreed ? "" : "cursor-not-allowed opacity-50"}`}
-                disabled={!agreed}
-                data-testid="welcome-signin-btn"
+                <button
+                  type="button"
+                  className={`rw-btn-pill rw-btn-primary w-full ${agreed ? "" : "cursor-not-allowed opacity-50"}`}
+                  data-testid="welcome-create-account-btn"
+                >
+                  Create account <ArrowRight className="h-4 w-4" />
+                </button>
+              </Link>
+              <div className="h-3" />
+              <Link
+                to="/login"
+                tabIndex={agreed ? 0 : -1}
+                data-testid={TID.welcomeCtaLogin}
               >
-                Sign in
-              </button>
-            </Link>
+                <button
+                  type="button"
+                  className={`rw-btn-pill rw-btn-ghost w-full ${agreed ? "" : "cursor-not-allowed opacity-50"}`}
+                  data-testid="welcome-signin-btn"
+                >
+                  Sign in
+                </button>
+              </Link>
+            </div>
           </div>
 
           <p className="mt-4 text-center text-[11px] text-muted-foreground">
