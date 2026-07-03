@@ -83,6 +83,13 @@ async def is_module_unlocked(
     program_id: str,
     module: dict,
 ) -> bool:
+    # Program-level access mode overrides everything: 'free' means all modules
+    # are unlocked once the program is purchased.
+    program = await db.programs.find_one(
+        {"id": program_id, "deleted_at": None}, {"access_mode": 1, "_id": 0}
+    )
+    if program and program.get("access_mode") == "free":
+        return True
     if not module.get("sequential_unlock", True):
         return True
     module_number = int(module.get("module_number", 1))
