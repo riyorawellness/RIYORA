@@ -96,6 +96,16 @@ export default function Login() {
             Create a membership
           </Link>
         </p>
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          Administrator?{" "}
+          <Link
+            to="/admin/login"
+            className="font-semibold text-[hsl(var(--rw-royal))]"
+            data-testid="login-admin-link"
+          >
+            Sign in to the admin panel →
+          </Link>
+        </p>
       </div>
     </div>
   );

@@ -1,0 +1,32 @@
+{
+  "summary": "Bug-fix verification for user-confusion issue (admin creds attempted at /login instead of /admin/login). Backend behavior verified correct: POST /api/admin/login with 9999999999/Admin@12345 returns HTTP 200 with tokens.access_token and admin.role='admin'. POST /api/auth/login with same admin creds correctly returns HTTP 401 'Invalid mobile or password'. Regression: registered a fresh test user via full OTP flow (send-otp -> verify-otp -> register with state+city+referral RW000000 -> login) returned 200; BRV /api/admin/qa/brv still returns overall=PASS with 36/36 rules. Frontend: /login page shows new admin hint element [data-testid='login-admin-link'] with exact text 'Sign in to the admin panel →'; clicking it navigates to /admin/login; admin form fields fill and submit successfully; redirect to /admin/dashboard confirmed and 'RIYORA Admin' visible in AdminShell header; /admin/qa page still loads with admin-qa-page testid and 'Run BRV' still yields PASS 36/36 verdict card. All 7 test cases in the review request pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase9.py",
+    "/app/test_reports/pytest/phase9_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login.jsx admin hint uses text-xs muted-foreground on white — legibility is OK on desktop but on mobile the muted color may fall below 4.5:1 WCAG contrast in some themes. Confirmed visually acceptable in the current tokens but worth verifying against production dark/high-contrast modes.",
+    "The Login.jsx registration payload requires state+city (server 422s otherwise), while /app/memory/test_credentials.md sample payload does NOT mention state/city. Consider updating the test-credentials doc so future test agents don't lose a cycle discovering the required fields."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (3/3 targeted checks: admin login OK, user login rejected, BRV PASS 36/36, plus full user register+login regression 200)",
+    "frontend": "100% (login-admin-link visible + navigates; admin login -> dashboard header 'RIYORA Admin'; /admin/qa Run BRV -> PASS 36/36)"
+  },
+  "test_credentials": "Admin 9999999999 / Admin@12345 confirmed working via /api/admin/login. Fresh test user created: mobile 8700003095, password Passw0rd!, membership RW550573 (regression check only, not needed to preserve).",
+  "seed_data_creation": "One TEST_BugFix User was created via /api/auth/register (mobile 8700003095, membership RW550573) for the user-login regression. No login_attempts rows created since no failed attempts were made during testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bug-fix (UX hint on /login pointing to /admin/login) is fully verified. Two-line change to Login.jsx confirmed live. No backend changes were required. If future testing hits an admin lockout on 9999999999, run: db.login_attempts.delete_one({'mobile':'9999999999','role':'admin'}). For fresh user registration, remember state and city are required fields in POST /api/auth/register (currently missing from test-credentials doc).",
+  "rca_of_the_issue": "Not a code bug — the user typed admin credentials (9999999999 / Admin@12345) at /login (user endpoint) which correctly rejected them because admins live in a separate `admins` collection queried only by /api/admin/login. Two rejections created stale login_attempts rows that were cleared by the main agent. Fix is UX: added a subtle 'Administrator? Sign in to the admin panel →' link at the bottom of /login pointing to /admin/login with data-testid='login-admin-link'. Verified end-to-end."
+}
