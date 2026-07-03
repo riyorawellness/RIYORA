@@ -1,0 +1,33 @@
+{
+  "summary": "REGRESSION VERIFICATION for service-worker 'Unexpected token <' bug fix. All 7 verification points pass. Zero pageerrors observed across /welcome, /, /login, /register, /admin, hard-reload, and a real admin/user login smoke. SW registered with scope=/, active state 'activated'. /sw.js returns application/javascript starting with the RIYORA header comment. /static/js/bundle.js returns text/javascript starting with webpack '/******/'. Login as Phase 6 user (9876675178/Passw0rd!) navigates to /app/home and dashboard renders correctly (RW134828, Inner Peace card).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verification_results": {
+    "fresh_welcome_visit_no_overlay": "PASS - RIYORA hero visible, 0 pageerrors",
+    "sw_registered_active": "PASS - scope=https://.../, hasActive=true, activeState=activated",
+    "sw_js_served_as_js": "PASS - status=200, content-type=application/javascript; charset=UTF-8, body starts with '// RIYORA WELLNESS - Service Worker'",
+    "bundle_js_served_as_js": "PASS - status=200, content-type=text/javascript; charset=utf-8, body starts with '/******/ (() => {'",
+    "hard_reload_no_pageerrors": "PASS - 0 new pageerrors after reload, RIYORA still visible",
+    "multi_route_navigation": "PASS - /, /login, /register, /admin all 200 with 0 pageerrors",
+    "login_smoke": "PASS - user 9876675178/Passw0rd! -> /app/home renders dashboard (RW134828, Inner Peace, activity meter)"
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "sw.js correctly bumps CACHE to 'riyora-v3' and purges old caches on activate — safe rollout path for users with the old buggy 'riyora-v1' SW.",
+    "index.html registration listens for 'updatefound' + 'controllerchange' and triggers a single-shot page reload — good UX for auto-recovery.",
+    "networkFirst wraps cache.put with .catch(()=>{}) which is safe for opaque/error responses; the response is only cached when fresh.ok is true — correct.",
+    "Minor: cross-origin scripts (e.g. cloudflareinsights beacon.min.js) are correctly ignored by the SW via origin check on line 48."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "100%"},
+  "test_credentials": "admin 9999999999/Admin@12345 (not exercised in final smoke); user 9876675178/Passw0rd! (login successful -> /app/home)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "SW cache bug is fully fixed. Any future report of 'Unexpected token <' should first check whether the user's browser still has the very old 'riyora-v1' SW cached — the new SW auto-upgrades via SKIP_WAITING + controllerchange reload, but a completely offline user could still see stale content. New /sw.js is content-type application/javascript, bundle.js is text/javascript, both starting with expected sentinels. Login flow (data-testid=login-mobile-input, login-password-input, login-submit-btn) verified working end-to-end."
+}

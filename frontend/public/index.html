@@ -27,7 +27,34 @@
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js").catch(() => {});
+          navigator.serviceWorker
+            .register("/sw.js")
+            .then((reg) => {
+              // Force an immediate update check on every load.
+              reg.update().catch(() => {});
+              reg.addEventListener("updatefound", () => {
+                const nw = reg.installing;
+                if (!nw) return;
+                nw.addEventListener("statechange", () => {
+                  if (
+                    nw.state === "installed" &&
+                    navigator.serviceWorker.controller
+                  ) {
+                    // A new SW has finished installing while an old one is
+                    // still controlling — tell it to skip waiting.
+                    nw.postMessage({ type: "SKIP_WAITING" });
+                  }
+                });
+              });
+            })
+            .catch(() => {});
+
+          let refreshing = false;
+          navigator.serviceWorker.addEventListener("controllerchange", () => {
+            if (refreshing) return;
+            refreshing = true;
+            window.location.reload();
+          });
         });
       }
     </script>
