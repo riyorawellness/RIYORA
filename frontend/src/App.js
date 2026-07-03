@@ -23,9 +23,13 @@ import Notifications from "@/pages/Notifications";
 import Settings from "@/pages/Settings";
 import Offline from "@/pages/Offline";
 import Purchases from "@/pages/Purchases";
+import Commissions from "@/pages/Commissions";
+import Payouts from "@/pages/Payouts";
+import Reports from "@/pages/Reports";
 import AdminLogin from "@/pages/AdminLogin";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminPayments from "@/pages/AdminPayments";
+import AdminReferrals from "@/pages/AdminReferrals";
 
 function App() {
   return (
@@ -65,6 +69,9 @@ function App() {
             <Route path="notifications" element={<Notifications />} />
             <Route path="profile" element={<Profile />} />
             <Route path="purchases" element={<Purchases />} />
+            <Route path="commissions" element={<Commissions />} />
+            <Route path="payouts" element={<Payouts />} />
+            <Route path="reports" element={<Reports />} />
             <Route path="settings" element={<Settings />} />
           </Route>
 

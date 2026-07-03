@@ -3,6 +3,7 @@ import {
   Award,
   BookOpen,
   ChevronRight,
+  FileText,
   HelpCircle,
   Landmark,
   LogOut,
@@ -12,6 +13,7 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   User2,
+  Wallet,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { TID } from "@/constants/testIds";
@@ -64,8 +66,10 @@ export default function Profile() {
       <Section title="Your journey">
         <Item to="/app/programs" icon={BookOpen} title="Purchased programs" hint="View your enrolments" />
         <Item to="/app/purchases" icon={Receipt} title="Transactions & invoices" hint="Payment history · GST invoices" testid="profile-nav-purchases" />
+        <Item to="/app/commissions" icon={Wallet} title="Commissions" hint="Referral earnings ledger" testid="profile-nav-commissions" />
+        <Item to="/app/payouts" icon={Landmark} title="Payouts" hint="Bank transfers · history" testid="profile-nav-payouts" />
+        <Item to="/app/reports" icon={FileText} title="Reports" hint="Download PDF reports" testid="profile-nav-reports" />
         <Item to="/app/certificate/inner-peace" icon={Award} title="Certificates" hint="Achievements & completion" />
-        <Item to="/app/programs/inner-peace" icon={Repeat} title="Subscription" hint="Inner Peace · Active" />
       </Section>
 
       <Section title="Account">

@@ -1,10 +1,13 @@
 import { Link } from "react-router-dom";
-import { Bell, Calendar, Droplet, Play, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bell, Calendar, Droplet, Play, Sparkles, PlusCircle } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import Logo from "@/components/Logo";
 import { TID } from "@/constants/testIds";
+import { activityApi } from "@/services/referrals";
+import { formatApiError } from "@/lib/api";
 import {
-  ACTIVITY,
   ANNOUNCEMENT,
   DAILY_QUOTE,
   PROGRAMS,
@@ -13,18 +16,56 @@ import {
 } from "@/mock/data";
 
 const STATUS_COLOR = {
-  active: "hsl(141 60% 42%)",
-  grace: "hsl(42 78% 55%)",
-  inactive: "hsl(356 78% 55%)",
+  green: "hsl(141 60% 42%)",
+  yellow: "hsl(42 78% 55%)",
+  red: "hsl(356 78% 55%)",
+  no_subscription: "hsl(220 10% 60%)",
 };
-const STATUS_LABEL = { active: "Active", grace: "Grace", inactive: "Inactive" };
+const STATUS_LABEL = {
+  green: "Active",
+  yellow: "Grace",
+  red: "Inactive",
+  no_subscription: "No subscription",
+};
 
 export default function Home() {
   const { user } = useAuth();
   const first = user?.full_name?.split(" ")[0] ?? "Seeker";
-  const percent = Math.round((ACTIVITY.completed / ACTIVITY.required) * 100);
+  const [meter, setMeter] = useState(null);
+  const [logging, setLogging] = useState(false);
   const innerPeace = PROGRAMS.find((p) => p.id === "inner-peace");
   const featured = PROGRAMS.find((p) => p.id === "level-1");
+
+  const loadMeter = async () => {
+    try {
+      const m = await activityApi.meter();
+      setMeter(m);
+    } catch (e) {
+      // silent
+    }
+  };
+
+  useEffect(() => {
+    loadMeter();
+  }, []);
+
+  const logSession = async () => {
+    setLogging(true);
+    try {
+      const res = await activityApi.logSession({ source: "manual" });
+      setMeter(res.meter);
+      toast.success("Session logged");
+    } catch (e) {
+      toast.error(formatApiError(e, "Could not log session"));
+    } finally {
+      setLogging(false);
+    }
+  };
+
+  const completed = meter?.completed ?? 0;
+  const required = meter?.required ?? 4;
+  const percent = Math.min(100, Math.round((completed / (required || 1)) * 100));
+  const status = meter?.status || "no_subscription";
 
   return (
     <div className="px-5 pt-4">
@@ -47,8 +88,8 @@ export default function Home() {
           <div className="text-right">
             <div className="text-[11px] uppercase tracking-widest text-white/70">Status</div>
             <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs">
-              <span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLOR[ACTIVITY.status] }} />
-              {STATUS_LABEL[ACTIVITY.status]}
+              <span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLOR[status] }} />
+              {STATUS_LABEL[status]}
             </div>
           </div>
         </div>
@@ -60,7 +101,7 @@ export default function Home() {
           <div className="rw-ring" style={{ "--p": percent }}>
             <div className="text-center">
               <div className="rw-serif text-2xl leading-none text-[hsl(var(--rw-royal-deep))]">
-                {ACTIVITY.completed}/{ACTIVITY.required}
+                {completed}/{required}
               </div>
               <div className="mt-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">sessions</div>
             </div>
@@ -69,13 +110,33 @@ export default function Home() {
             <p className="rw-eyebrow">Activity Meter</p>
             <h3 className="mt-1 rw-serif text-xl">Current cycle</h3>
             <p className="text-xs text-muted-foreground">
-              {ACTIVITY.cycle_start} → {ACTIVITY.cycle_end}
+              {meter?.cycle_start
+                ? `${formatDate(meter.cycle_start)} → ${formatDate(meter.cycle_end)}`
+                : "No active Inner Peace subscription"}
             </p>
-            <div className="mt-3 flex gap-2">
-              <span className="rw-chip rw-chip-gold">1 session remaining</span>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {status === "green" ? (
+                <span className="rw-chip rw-chip-gold">Eligible for rewards</span>
+              ) : (
+                <span className="rw-chip rw-chip-sky">
+                  {meter?.remaining || required} session
+                  {(meter?.remaining || required) !== 1 ? "s" : ""} remaining
+                </span>
+              )}
             </div>
           </div>
         </div>
+        {meter && meter.status !== "no_subscription" && (
+          <button
+            onClick={logSession}
+            disabled={logging || completed >= required}
+            className="mt-4 flex w-full items-center justify-center gap-2 rw-btn-pill bg-[hsl(var(--rw-sky-soft))] text-[hsl(var(--rw-royal-deep))] disabled:opacity-50"
+            data-testid="home-log-session-btn"
+          >
+            <PlusCircle className="h-4 w-4" />
+            {completed >= required ? "Cycle complete" : "Mark today's session"}
+          </button>
+        )}
       </section>
 
       {/* Inner Peace card */}
@@ -171,4 +232,16 @@ export default function Home() {
       </section>
     </div>
   );
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+    });
+  } catch {
+    return iso;
+  }
 }

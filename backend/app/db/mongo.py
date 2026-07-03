@@ -93,6 +93,18 @@ async def create_indexes() -> None:
     # razorpay_payment_id may be null; sparse index to keep uniqueness only when set
     await db.program_purchases.create_index("razorpay_payment_id", sparse=True)
 
+    # ----- Phase 6 (Refer & Earn) -----
+    await db.activity_sessions.create_index(
+        [("user_membership_id", 1), ("subscription_purchase_id", 1)]
+    )
+    await db.activity_sessions.create_index("completed_at")
+    await db.commissions.create_index([("sponsor_membership_id", 1), ("status", 1)])
+    await db.commissions.create_index([("purchase_id", 1), ("sponsor_membership_id", 1)], unique=True, sparse=True)
+    await db.commissions.create_index("buyer_membership_id")
+    await db.commissions.create_index("created_at")
+    await db.payouts.create_index([("user_membership_id", 1), ("status", 1)])
+    await db.payouts.create_index("created_at")
+
 
 async def seed_company_account() -> None:
     """Create the reserved RW000000 company membership if missing.

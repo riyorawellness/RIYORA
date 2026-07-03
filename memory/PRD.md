@@ -70,6 +70,24 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - Frontend: real-API `Programs.jsx` (dashboard buckets), real-API `ProgramDetail.jsx` with sticky checkout, `CheckoutModal.jsx` (Razorpay Standard Checkout + mock-mode simulator), `Purchases.jsx` (history + invoice download), `AdminPayments.jsx` (transactions table, refund, GST settings).
 - New env: `RAZORPAY_MOCK_MODE`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`.
 
+## Delivered on 2026-07-03 (Phase 6 — Refer & Earn Engine)
+- `app/services/activity_meter.py` — subscription cycle detection (finds ANY active `is_subscription=true` purchase), session logging (auto on Inner Peace module completion + manual), 4-session rule, meter with green/yellow/red/no_subscription statuses, smart reminders (7d/3d/1d/expiry) as in-app notifications rows.
+- `app/services/commission_engine.py` — 3-level upline walk (excludes company root RW000000), per-program `commission_override` OR global rates (percent | fixed | both), eligibility check via activity meter, idempotent per (purchase, sponsor). Rows created as `pending` for eligible sponsors and `rejected` (with reason) for inactive ones — full audit trail preserved.
+- `app/services/reports.py` — 5 ReportLab PDF reports: referral, income, downline, subscription, transaction.
+- Routes:
+  - `/api/referrals/dashboard` (earnings + activity + team counts + referral link)
+  - `/api/referrals/share/qr` (base64 PNG QR code of referral link)
+  - `/api/referrals/team?level=1|2|3` (members with sub + activity status)
+  - `/api/referrals/admin/settings` GET/PUT (L1/L2/L3 percent + fixed + mode + activity rules)
+  - `/api/activity/meter` + `/api/activity/session` + `/api/activity/reminders/generate`
+  - `/api/commissions/me[/summary]` + admin list/summary/approve/reject/bulk-approve
+  - `/api/payouts/me` + admin list/pending-by-user/create/mark-paid/cancel
+  - `/api/reports/{type}` PDF export (referral | income | downline | subscription | transaction)
+- Payment engine hook: `/payments/verify` and `/payments/subscription` now call `create_commissions_for_purchase()` on success.
+- Program engine hook: `mark_module_completed()` auto-logs an Inner Peace session when the module belongs to a subscription program.
+- Frontend: real-API `ReferEarn.jsx` (dashboard + QR modal + WhatsApp/SMS/Email/Copy share sheet), real-API `Team.jsx` (3-tab downline), Home activity meter (log-session button), `Commissions.jsx` (filter chips + ledger cards), `Payouts.jsx`, `Reports.jsx` (5 PDF downloads), `AdminReferrals.jsx` (3 tabs: Commissions with bulk-approve, Payouts with queue + mark-paid, Settings with commission mode / percent / fixed / activity rules).
+- Profile page now surfaces Commissions / Payouts / Reports links. Admin Dashboard header has Payments + Referrals buttons.
+
 ## Backlog (Phase 2+)
 ### P0 — high impact
 - Programs listing (Inner Peace subscription + Levels 1–5) with per-program price/discount/GST/validity (admin-editable).

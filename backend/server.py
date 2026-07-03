@@ -51,6 +51,11 @@ from app.routes import purchases as purchases_routes  # noqa: E402
 from app.routes import referral_tree as referral_tree_routes  # noqa: E402
 from app.routes import settings as settings_routes  # noqa: E402
 from app.routes import payments as payments_routes  # noqa: E402
+from app.routes import referrals as referrals_routes  # noqa: E402
+from app.routes import activity as activity_routes  # noqa: E402
+from app.routes import commissions as commissions_routes  # noqa: E402
+from app.routes import payouts as payouts_routes  # noqa: E402
+from app.routes import reports as reports_routes  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -149,5 +154,10 @@ api_router.include_router(notifications_routes.router)
 api_router.include_router(activity_log_routes.router)
 api_router.include_router(content_routes.router)
 api_router.include_router(payments_routes.router)
+api_router.include_router(referrals_routes.router)
+api_router.include_router(activity_routes.router)
+api_router.include_router(commissions_routes.router)
+api_router.include_router(payouts_routes.router)
+api_router.include_router(reports_routes.router)
 
 app.include_router(api_router)

@@ -55,6 +55,7 @@ from app.services.payment import (
     verify_signature,
     verify_webhook_signature,
 )
+from app.services.commission_engine import create_commissions_for_purchase
 from app.services.program_engine import check_purchase_allowed
 from app.services.validity import compute_expiry, get_active_purchase
 
@@ -296,6 +297,12 @@ async def verify_payment(
     except Exception as exc:  # noqa: BLE001
         logger.exception("Invoice PDF generation failed: %s", exc)
 
+    # ----- Phase 6: 3-level referral commissions ---------------------
+    try:
+        await create_commissions_for_purchase(database, purchase_doc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Commission engine failed: %s", exc)
+
     # ----- audit log --------------------------------------------------
     await database.activity_log.insert_one(
         {
@@ -490,6 +497,12 @@ async def create_subscription(
         "deleted_at": None,
     }
     await database.program_purchases.insert_one(purchase_doc)
+
+    # ----- Phase 6: subscription commissions -------------------------
+    try:
+        await create_commissions_for_purchase(database, purchase_doc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Subscription commission engine failed: %s", exc)
 
     return CreateSubscriptionResponse(
         subscription_id=sub["id"],
