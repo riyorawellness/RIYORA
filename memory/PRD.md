@@ -112,3 +112,11 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 1. Programs & Modules schema + admin CRUD.
 2. Secure content streaming (Emergent Object Storage upload + expiring signed URLs).
 3. Razorpay integration playbook + real keys.
+
+## Delivered on 2026-07-03 (Phase 7 — Admin Panel & CMS)
+- Backend: 4 new route files (admin_dashboard, admin_users, cms, admin_phase7) with rich stats, revenue series, top sellers/referrers, activity feed, full user CRUD + CSV export + session-revoking status change/password reset, CMS with version snapshots, System + Security settings with proper default-fallback, banners CRUD with schedule, notification compose (broadcast + targeted), file uploads (`/app/backend/uploads/`), audit-log viewer.
+- All admin routes idempotent + audit-logged via unified `activity_log` collection.
+- Frontend: new `AdminShell` (left rail + mobile bottom nav) wraps every admin page. New pages: rich AdminDashboard (Recharts revenue chart), AdminUsers (search/filter/detail modal with tabs), AdminCMS (sidebar page selector + textarea), AdminSystem (Company / Social / Application / Security tabs), AdminNotifications (compose + history), AdminBanners (grid + schedule dialog + inline upload), AdminAuditLog (filter/paginate).
+- Bugs caught + fixed during testing: log_action collection mismatch, system-settings setdefault-after-None bug, /notifications/me route collision, PaginatedResponse stripping the `unread` field. Final: 97/97 tests pass across Phase 5+6+7.
+
+## Backlog (Phase 8+)
