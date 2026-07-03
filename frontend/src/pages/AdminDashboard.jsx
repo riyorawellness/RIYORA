@@ -15,7 +15,7 @@ import Logo from "@/components/Logo";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { TID } from "@/constants/testIds";
-import { LogOut, Users, Activity, Layers, Send } from "lucide-react";
+import { LogOut, Users, Activity, Layers, Send, CreditCard } from "lucide-react";
 
 export default function AdminDashboard() {
   const { admin, logout } = useAuth();
@@ -43,9 +43,14 @@ export default function AdminDashboard() {
           <Logo size="sm" />
           <Badge variant="secondary" className="ml-1">Admin</Badge>
         </div>
-        <Button variant="secondary" onClick={doLogout} data-testid={TID.adminLogout}>
-          <LogOut className="mr-1 h-4 w-4" /> Sign out
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => nav("/admin/payments")} data-testid="admin-nav-payments">
+            <CreditCard className="mr-1 h-4 w-4" /> Payments
+          </Button>
+          <Button variant="secondary" onClick={doLogout} data-testid={TID.adminLogout}>
+            <LogOut className="mr-1 h-4 w-4" /> Sign out
+          </Button>
+        </div>
       </header>
 
       <main className="rw-container pb-16">

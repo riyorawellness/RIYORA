@@ -627,17 +627,28 @@ class TestCertificates:
 class TestReferralTree:
     def test_user_registration_auto_inserts_tree(self, api, admin_h):
         u = _register_user(api, referral=COMPANY_REF, full_name="TEST_TreeUser")
-        # admin can find by user_membership_id
-        r = requests.get(f"{API}/referral-tree/admin", headers=admin_h,
-                        params={"sponsor_membership_id": COMPANY_REF, "page_size": 200})
-        assert r.status_code == 200
-        ids = [x["user_membership_id"] for x in r.json()["items"]]
-        assert u["membership_id"] in ids
-        # level 1 (child of RW000000 root=level 0)
-        for x in r.json()["items"]:
-            if x["user_membership_id"] == u["membership_id"]:
-                assert x["level"] == 1
+        # Admin list may span multiple pages (test DB accumulates rows over
+        # many runs). Iterate until we find the freshly-registered user.
+        page = 1
+        found = None
+        while page <= 20:
+            r = requests.get(f"{API}/referral-tree/admin", headers=admin_h,
+                            params={"sponsor_membership_id": COMPANY_REF,
+                                    "page_size": 200, "page": page})
+            assert r.status_code == 200
+            data = r.json()
+            for x in data["items"]:
+                if x["user_membership_id"] == u["membership_id"]:
+                    found = x
+                    break
+            if found is not None:
                 break
+            if page * 200 >= data.get("total", 0):
+                break
+            page += 1
+        assert found is not None, f"{u['membership_id']} not found across all pages"
+        # level 1 (child of RW000000 root=level 0)
+        assert found["level"] == 1
 
     def test_downline_and_upline(self, api):
         # Build parent -> child -> grandchild chain

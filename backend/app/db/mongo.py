@@ -84,6 +84,15 @@ async def create_indexes() -> None:
     await db.activity_log.create_index("actor_membership_id")
     await db.activity_log.create_index("created_at")
 
+    # ----- Phase 5 (Payments) -----
+    await db.payment_orders.create_index("order_id", unique=True)
+    await db.payment_orders.create_index([("user_membership_id", 1), ("created_at", -1)])
+    await db.payment_orders.create_index("status")
+    await db.subscriptions.create_index("subscription_id", unique=True)
+    await db.subscriptions.create_index([("user_membership_id", 1), ("status", 1)])
+    # razorpay_payment_id may be null; sparse index to keep uniqueness only when set
+    await db.program_purchases.create_index("razorpay_payment_id", sparse=True)
+
 
 async def seed_company_account() -> None:
     """Create the reserved RW000000 company membership if missing.

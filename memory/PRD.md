@@ -55,6 +55,21 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - New `level` field on programs (0=subscription, 1-5=levels) driving the sequence gate.
 - 98/98 backend tests passing.
 
+## Delivered on 2026-07-03 (Phase 5 — Razorpay Payment Engine)
+- `app/services/payment.py` — Razorpay client (LIVE + MOCK modes), HMAC-SHA256 signature verification, webhook verification, mock subscriptions.
+- `app/services/invoice.py` — ReportLab-based GST-compliant PDF invoice, persisted at `/app/backend/invoices/`.
+- `app/routes/payments.py` — full engine:
+  - `POST /payments/order` (server-computed pricing, sequence gate)
+  - `POST /payments/verify` (signature check → creates `program_purchases` row → generates invoice)
+  - `POST /payments/webhook` (Razorpay webhook receiver)
+  - `GET /payments/config` (public key id + is_mock)
+  - `GET /payments/me` + `GET /payments/invoice/{id}` (user history + PDF download)
+  - `POST /payments/subscription` + `GET/POST cancel` (Inner Peace mock AutoPay)
+  - Admin: `/admin/transactions`, `/admin/summary`, `/admin/transactions/{id}/refund`, `/admin/settings`
+- Access unlocking now happens ONLY via `/payments/verify` — frontend can't self-grant access.
+- Frontend: real-API `Programs.jsx` (dashboard buckets), real-API `ProgramDetail.jsx` with sticky checkout, `CheckoutModal.jsx` (Razorpay Standard Checkout + mock-mode simulator), `Purchases.jsx` (history + invoice download), `AdminPayments.jsx` (transactions table, refund, GST settings).
+- New env: `RAZORPAY_MOCK_MODE`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`.
+
 ## Backlog (Phase 2+)
 ### P0 — high impact
 - Programs listing (Inner Peace subscription + Levels 1–5) with per-program price/discount/GST/validity (admin-editable).

@@ -50,6 +50,7 @@ from app.routes import progress as progress_routes  # noqa: E402
 from app.routes import purchases as purchases_routes  # noqa: E402
 from app.routes import referral_tree as referral_tree_routes  # noqa: E402
 from app.routes import settings as settings_routes  # noqa: E402
+from app.routes import payments as payments_routes  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -147,5 +148,6 @@ api_router.include_router(settings_routes.router)
 api_router.include_router(notifications_routes.router)
 api_router.include_router(activity_log_routes.router)
 api_router.include_router(content_routes.router)
+api_router.include_router(payments_routes.router)
 
 app.include_router(api_router)

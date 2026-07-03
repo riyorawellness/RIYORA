@@ -7,6 +7,7 @@ import {
   Landmark,
   LogOut,
   Mail,
+  Receipt,
   Repeat,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -62,6 +63,7 @@ export default function Profile() {
       {/* sections */}
       <Section title="Your journey">
         <Item to="/app/programs" icon={BookOpen} title="Purchased programs" hint="View your enrolments" />
+        <Item to="/app/purchases" icon={Receipt} title="Transactions & invoices" hint="Payment history · GST invoices" testid="profile-nav-purchases" />
         <Item to="/app/certificate/inner-peace" icon={Award} title="Certificates" hint="Achievements & completion" />
         <Item to="/app/programs/inner-peace" icon={Repeat} title="Subscription" hint="Inner Peace · Active" />
       </Section>
@@ -112,9 +114,9 @@ function Section({ title, children }) {
   );
 }
 
-function Item({ to, icon: Icon, title, hint }) {
+function Item({ to, icon: Icon, title, hint, testid }) {
   return (
-    <Link to={to} className="flex items-center gap-3 p-4">
+    <Link to={to} className="flex items-center gap-3 p-4" data-testid={testid}>
       <div className="grid h-9 w-9 place-items-center rounded-full bg-[hsl(var(--rw-sky-soft))] text-[hsl(var(--rw-royal))]">
         <Icon className="h-4 w-4" />
       </div>
