@@ -1,0 +1,48 @@
+{
+  "summary": "Phase 4 Programs Engine backend testing. Wrote /app/backend/tests/test_phase4.py (18 tests across 8 classes covering all Phase 4 flows). Found one CRITICAL bug in issue_certificate_if_eligible (ObjectId leak causing 500 on cert auto-issue) — root-caused via backend logs and FIXED in program_engine.py (added doc.pop('_id', None) after insert_one; symmetrical to the existing pop on the 'existing' branch). Also updated one Phase 2 test (TestAssessments.test_submit_and_results) to match the new wrapped response shape {'result': {...}, 'certificate': ...} — per the review note about assessment response shape changing. Full regression: 98/98 pass (33 Phase 1 + 47 Phase 2 + 18 Phase 4). All Phase 4 scenarios verified end-to-end: sequence gate + subscription bypass, purchase creation with expiry/invoice, validity engine (direct-Mongo expiry manipulation flips to 'expired' bucket + status), sequential module unlock, no-access-without-purchase, module-complete idempotency & % recompute & time_spent accumulation, RW-CERT-* auto-issue (no duplicates), assessment-gated cert issuance, attempts_allowed enforcement + passed-bypass, correct_index stripping on GET, randomize determinism, content token issue + 302 stream + no-store + inline + 401 for bad token + 403 after soft-delete, continue-learning + dashboard buckets w/ validity_remaining_days.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/programs/{id}/eligibility & POST /purchase", "issue": "_prev_level_program uses find_one({level:N-1}) — non-deterministic if multiple active programs share the same level. In production this is fine (one program per level) but a data-integrity guard (unique index on level where non-null) would prevent silent misconfiguration."},
+      {"endpoint": "GET /api/content/stream/{token}", "issue": "Response Cache-Control header is 'no-store, no-cache, must-revalidate' (extended by a global middleware/proxy) rather than exact 'no-store'. Functionally correct; assertion loosened in tests to 'no-store in value'."},
+      {"endpoint": "POST /api/programs/{id}/purchase", "issue": "No idempotency key / duplicate-active-purchase guard: a user can call the endpoint N times and accumulate N active rows for the same program+validity window. get_active_purchase picks the newest so behavior is safe, but leftover rows pile up. Consider blocking new purchase when an active row already exists."},
+      {"endpoint": "POST /api/programs/{id}/purchase", "issue": "Body PurchaseIntentCreate re-declares program_id but the path already carries it; the two are not cross-validated. If body.program_id != path program_id the path wins silently. Minor; recommend a 400 if they disagree, or drop the body field."},
+      {"endpoint": "GET /api/programs/me/dashboard", "issue": "'completed' bucket keys off is_program_completed_with_certificate (cert issued). If admin revokes a cert later, the program silently drops out of 'completed' and lands back in 'available' or 'purchased'. Documentation / status field would help."},
+      {"endpoint": "program_engine.issue_certificate_if_eligible", "issue": "verification_number is uuid.uuid4().hex[:16] with no uniqueness index — theoretical collision risk. Consider a unique index or verification_number field."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase4.py",
+    "/app/backend/tests/test_phase2.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/phase4_results.xml"
+  ],
+  "action_items": [
+    "None blocking. The critical ObjectId-leak in issue_certificate_if_eligible was fixed in this iteration (see updated_files); please review the one-line diff.",
+    "Optional polish: enforce unique-per-level constraint on active programs (or make _prev_level_program deterministic via order_index/created_at) so admin creating a second program at the same level cannot silently break the sequence gate.",
+    "Optional: block duplicate active purchases (409) or make POST /purchase idempotent (return existing active row instead of creating a new one).",
+    "Optional: cross-validate body.program_id vs path program_id in POST /programs/{id}/purchase, or drop body.program_id."
+  ],
+  "critical_code_review_comments": [
+    "FIXED: program_engine.issue_certificate_if_eligible was returning the freshly-inserted certificate doc WITH the ObjectId `_id` motor mutates onto it after insert_one → FastAPI's jsonable_encoder raised ValueError → 500 on every progress/complete + assessment/submit that would issue a cert. One-line fix: doc.pop('_id', None) after insert_one, symmetrical to the existing pop on the 'existing' path.",
+    "program_engine._prev_level_program uses find_one — non-deterministic when multiple active programs share a level. Recommend .sort([('order_index',1),('created_at',1)]) or a unique index on level where level!=null.",
+    "Assessment GET now strips correct_index (good, security). But the /admin GET (repo.get) returns everything including correct_index — kept for admin visibility. OK.",
+    "content.py stream endpoint sets Content-Disposition=inline and Cache-Control=no-store; a global middleware appends additional cache directives — verified the final header still contains 'no-store' so downloads/caches are blocked.",
+    "get_active_purchase uses ISO-string comparison for expiry_date (dictated by storing datetimes as ISO strings). Since we always write UTC 'YYYY-MM-DDTHH:MM:SS.mmm+00:00', lexical ordering is safe. But storing native datetimes would be more robust to timezone drift and makes range queries index-friendly.",
+    "purchase endpoint writes purchase_date/expiry_date as ISO strings; mark_expired_purchases compares against ISO of `now()`. Works, but consider a stored 'expires_at' Date type for TTL/index efficiency in future."
+  ],
+  "updated_files": [
+    "/app/backend/app/services/program_engine.py (one-line fix: pop _id after certificate insert)",
+    "/app/backend/tests/test_phase4.py (new file — 18 tests)",
+    "/app/backend/tests/test_phase2.py (assessment submit shape adaption)"
+  ],
+  "success_rate": {"backend": "100% (98/98: 33 Phase 1 + 47 Phase 2 + 18 Phase 4)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "Admin 9999999999 / Admin@12345. Dev OTP 123456. Company referral RW000000. Public base URL from REACT_APP_BACKEND_URL.",
+  "seed_data_creation": "Each Phase 4 test registers a fresh 10-digit mobile user and creates a fresh isolated program+modules+assessments prefixed 'TEST_'. Uses out-of-band levels 8/9 for sequence-gate test to avoid clashing with seeded L1/L2 programs (Chitta Shuddhi / Prana Activation). Categories: one throwaway 'TEST_P4_Cat' created per module-scoped fixture. Validity engine test writes directly to Mongo (program_purchases.expiry_date → 2020) to simulate expiry — the modification is on the test's own purchase row only.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Full regression command: `pytest /app/backend/tests/ --junitxml=/app/test_reports/pytest/pytest_results.xml`. Phase 4 suite in test_phase4.py depends on direct Mongo access via MONGO_URL/DB_NAME from /app/backend/.env (used for expiry-manipulation and soft-delete-purchase tests). Phase 2 test_phase2.py::TestAssessments::test_submit_and_results was updated to handle the new wrapped submit response {'result':...,'certificate':...}. All future assessments tests should read from response.json()['result'] not the raw body. Phase 4 sequence-gate test uses levels 8 and 9 (out-of-band from seeded 1/2) and de-activates any pre-existing programs at those levels to keep the check deterministic.",
+  "rca of the issue": "Bug (CRITICAL, now FIXED): POST /api/progress/me/{pid}/module/{mid}/complete and POST /api/assessments/{id}/submit both call issue_certificate_if_eligible → when eligible+no existing cert, this function inserts a new certificate doc and returns it. Motor's insert_one mutates the passed dict by adding _id (ObjectId). The route then returns {'progress': ..., 'certificate': doc-with-_id} → FastAPI's jsonable_encoder raises ValueError('ObjectId not iterable') → 500. Existing certs path already popped _id, but the insert path did not — asymmetric. Reproduction: (1) create fresh subscription program with modules, (2) purchase, (3) complete last module → 500. Log line: `File .../fastapi/encoders.py: raise ValueError(errors) from e — ValueError: [TypeError(\"'ObjectId' object is not iterable\")]`. Mitigation applied: /app/backend/app/services/program_engine.py — added `doc.pop('_id', None)` right after `await db.certificates.insert_one(doc)` inside issue_certificate_if_eligible. Verified: cert issue path now returns clean JSON; 3 previously-failing Phase 4 tests now pass (test_idempotent_complete_and_cert_issue, test_cert_requires_assessment_pass, test_l2_blocked_until_l1_done). Full 98/98 regression green."
+}

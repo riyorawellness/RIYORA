@@ -455,7 +455,8 @@ class TestAssessments:
         r = requests.post(f"{API}/assessments/{a['id']}/submit", headers=user_h,
                           json={"assessment_id": a["id"], "answers": [0, 1]})
         assert r.status_code == 200
-        d = r.json()
+        # Phase 4 wraps: {"result": {...marks, passed, total...}, "certificate": ...}
+        d = r.json().get("result", r.json())
         assert d["marks"] == 2
         assert d["total"] == 2
         assert d["passed"] is True
@@ -463,8 +464,9 @@ class TestAssessments:
         r2 = requests.post(f"{API}/assessments/{a['id']}/submit", headers=user_h,
                            json={"assessment_id": a["id"], "answers": [0, 0]})
         assert r2.status_code == 200
-        assert r2.json()["marks"] == 1
-        assert r2.json()["passed"] is False
+        d2 = r2.json().get("result", r2.json())
+        assert d2["marks"] == 1
+        assert d2["passed"] is False
         # results list for me
         r3 = requests.get(f"{API}/assessments/{a['id']}/results/me", headers=user_h)
         assert r3.status_code == 200

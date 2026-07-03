@@ -1,10 +1,13 @@
 """Assessments — user list/get by module; admin CRUD.
 
-Note: Assessment RESULT submission simply persists the answer array + computed
-marks. Attempt-limit enforcement or 'pass' business rules are intentionally
-minimal here (business logic phase later).
+Phase 4 additions:
+  * `randomize` option — questions shuffled per fetch (server-side).
+  * Attempt-limit enforcement using `attempts_allowed` (from admin) counted
+    against past assessment_results for the same user + assessment.
+  * `passed` submissions auto-issue the program certificate if all modules done.
 """
 from datetime import datetime, timezone
+import random
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,6 +21,7 @@ from app.models.phase2 import (
     PaginatedResponse,
 )
 from app.repositories.base import BaseRepository
+from app.services.program_engine import issue_certificate_if_eligible
 
 router = APIRouter(prefix="/assessments", tags=["Assessments"])
 
@@ -49,12 +53,44 @@ async def list_assessments(
 async def get_assessment(
     assessment_id: str,
     database: AsyncIOMotorDatabase = Depends(db),
-    _current: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user),
 ):
     doc = await _repo(database).get(assessment_id)
     if not doc:
         raise HTTPException(404, "Assessment not found")
-    return doc
+
+    # Attempts summary
+    total_attempts = await database.assessment_results.count_documents(
+        {"assessment_id": assessment_id, "user_membership_id": current["membership_id"]}
+    )
+    passed_before = await database.assessment_results.find_one(
+        {
+            "assessment_id": assessment_id,
+            "user_membership_id": current["membership_id"],
+            "passed": True,
+        }
+    )
+    attempts_allowed = int(doc.get("attempts_allowed", 3))
+    can_attempt = bool(passed_before) or total_attempts < attempts_allowed
+
+    questions = list(doc.get("questions") or [])
+    if doc.get("randomize"):
+        # Deterministic per attempt so preview/submit stay aligned: seed by
+        # (user, assessment, attempt#).
+        seed = f"{current['membership_id']}:{assessment_id}:{total_attempts}"
+        rng = random.Random(seed)
+        rng.shuffle(questions)
+
+    # Strip correct_index from what we send to the client.
+    safe_questions = [{"question": q["question"], "options": q["options"]} for q in questions]
+    return {
+        **doc,
+        "questions": safe_questions,
+        "attempts_used": total_attempts,
+        "attempts_allowed": attempts_allowed,
+        "can_attempt": can_attempt,
+        "already_passed": bool(passed_before),
+    }
 
 
 @router.post("/{assessment_id}/submit")
@@ -70,12 +106,30 @@ async def submit_assessment(
     questions = assessment.get("questions", [])
     if len(body.answers) != len(questions):
         raise HTTPException(400, "Answer count must match question count")
+
+    # Attempt-limit gate (skip if already passed).
+    already_passed = await database.assessment_results.find_one(
+        {
+            "assessment_id": assessment_id,
+            "user_membership_id": current["membership_id"],
+            "passed": True,
+        }
+    )
+    if not already_passed:
+        used = await database.assessment_results.count_documents(
+            {"assessment_id": assessment_id, "user_membership_id": current["membership_id"]}
+        )
+        allowed = int(assessment.get("attempts_allowed", 3))
+        if used >= allowed:
+            raise HTTPException(429, f"No attempts remaining ({used}/{allowed})")
+
     marks = sum(1 for i, q in enumerate(questions) if body.answers[i] == q.get("correct_index"))
     passed = marks >= assessment.get("passing_marks", 0)
     doc = {
         "id": str(uuid.uuid4()),
         "assessment_id": assessment_id,
         "user_membership_id": current["membership_id"],
+        "program_id": assessment.get("program_id"),
         "answers": body.answers,
         "marks": marks,
         "total": len(questions),
@@ -84,7 +138,14 @@ async def submit_assessment(
     }
     await database.assessment_results.insert_one(doc)
     doc.pop("_id", None)
-    return doc
+
+    # If passed, try to auto-issue certificate for the parent program.
+    certificate = None
+    if passed and assessment.get("program_id"):
+        certificate = await issue_certificate_if_eligible(
+            database, current["membership_id"], assessment["program_id"]
+        )
+    return {"result": doc, "certificate": certificate}
 
 
 @router.get("/{assessment_id}/results/me", response_model=PaginatedResponse)

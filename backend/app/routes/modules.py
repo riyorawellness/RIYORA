@@ -1,8 +1,6 @@
 """Program Modules — user list/get, admin CRUD.
 
-Note: sequential unlock enforcement is NOT implemented in this phase (business
-logic phase later). Modules simply store an `order_index`, `module_number` and
-`sequential_unlock` flag for future enforcement.
+Phase 4: User endpoint enforces access + module unlock status.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -14,6 +12,8 @@ from app.models.phase2 import (
     ProgramModuleUpdate,
 )
 from app.repositories.base import BaseRepository
+from app.services.program_engine import is_module_unlocked
+from app.services.validity import get_active_purchase
 
 router = APIRouter(prefix="/modules", tags=["Program Modules"])
 
@@ -51,6 +51,63 @@ async def get_module(
     if not doc:
         raise HTTPException(404, "Module not found")
     return doc
+
+
+# ---------------------- Phase 4: user-facing enriched list ----------------
+
+
+@router.get("/me/by-program/{program_id}")
+async def my_program_modules(
+    program_id: str,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    """Return modules for a program with unlock + completed flags.
+
+    Requires an active purchase; strips raw video/audio/pdf URLs so users can
+    only stream via /content/token (Phase 4 security).
+    """
+    if not await database.programs.find_one({"id": program_id, "deleted_at": None}):
+        raise HTTPException(404, "Program not found")
+
+    active = await get_active_purchase(database, current["membership_id"], program_id)
+    has_access = bool(active)
+
+    modules = []
+    async for m in database.program_modules.find(
+        {"program_id": program_id, "deleted_at": None, "is_active": True}
+    ).sort("module_number", 1):
+        m.pop("_id", None)
+        modules.append(m)
+
+    prog = await database.program_progress.find_one(
+        {"user_membership_id": current["membership_id"], "program_id": program_id, "deleted_at": None}
+    )
+    completed = set((prog or {}).get("completed_modules") or [])
+
+    out = []
+    for m in modules:
+        unlocked = has_access and await is_module_unlocked(
+            database, current["membership_id"], program_id, m
+        )
+        entry = {
+            "id": m["id"],
+            "module_number": m.get("module_number"),
+            "name": m.get("name"),
+            "description": m.get("description"),
+            "quiz_id": m.get("quiz_id"),
+            "assignment": m.get("assignment"),
+            "order_index": m.get("order_index"),
+            "sequential_unlock": m.get("sequential_unlock", True),
+            "has_video": bool(m.get("video_url")),
+            "has_audio": bool(m.get("audio_url")),
+            "has_pdf": bool(m.get("pdf_url")),
+            "is_unlocked": unlocked,
+            "is_completed": m["id"] in completed,
+        }
+        out.append(entry)
+
+    return {"has_access": has_access, "active_purchase": active, "modules": out}
 
 
 # ------------------------- Admin ------------------------------------------

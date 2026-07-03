@@ -41,6 +41,7 @@ from app.routes import assessments as assessments_routes  # noqa: E402
 from app.routes import bank_details as bank_details_routes  # noqa: E402
 from app.routes import categories as categories_routes  # noqa: E402
 from app.routes import certificates as certificates_routes  # noqa: E402
+from app.routes import content as content_routes  # noqa: E402
 from app.routes import modules as modules_routes  # noqa: E402
 from app.routes import notifications as notifications_routes  # noqa: E402
 from app.routes import profiles as profiles_routes  # noqa: E402
@@ -145,5 +146,6 @@ api_router.include_router(bank_details_routes.router)
 api_router.include_router(settings_routes.router)
 api_router.include_router(notifications_routes.router)
 api_router.include_router(activity_log_routes.router)
+api_router.include_router(content_routes.router)
 
 app.include_router(api_router)

@@ -1,4 +1,8 @@
-"""Program Progress — user get + update (auto-upsert), admin read + update."""
+"""Program Progress — user get + update (auto-upsert), admin read + update.
+
+Phase 4: Sequential-unlock-safe module completion endpoint that
+recomputes percentage and auto-issues a certificate when eligible.
+"""
 from datetime import datetime, timezone
 import uuid
 
@@ -7,7 +11,14 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.deps import db, get_current_admin, get_current_user
 from app.models.phase2 import PaginatedResponse, ProgramProgressUpdate
+from app.models.phase4 import ModuleCompleteRequest
 from app.repositories.base import BaseRepository
+from app.services.program_engine import (
+    is_module_unlocked,
+    issue_certificate_if_eligible,
+    mark_module_completed,
+)
+from app.services.validity import get_active_purchase
 
 router = APIRouter(prefix="/progress", tags=["Program Progress"])
 
@@ -91,6 +102,41 @@ async def update_my_progress(
     return await _upsert_progress(
         database, current["membership_id"], program_id, body.model_dump(exclude_none=True), current["membership_id"]
     )
+
+
+# ---------------------- Phase 4: engine-driven completion -----------------
+
+
+@router.post("/me/{program_id}/module/{module_id}/complete")
+async def complete_module(
+    program_id: str,
+    module_id: str,
+    body: ModuleCompleteRequest,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    # Access + validity gate
+    active = await get_active_purchase(database, current["membership_id"], program_id)
+    if not active:
+        raise HTTPException(403, "No active purchase for this program or validity expired")
+
+    module = await database.program_modules.find_one(
+        {"id": module_id, "program_id": program_id, "deleted_at": None}
+    )
+    if not module:
+        raise HTTPException(404, "Module not found")
+
+    # Sequential unlock gate
+    if not await is_module_unlocked(database, current["membership_id"], program_id, module):
+        raise HTTPException(403, "Complete the previous module first")
+
+    progress = await mark_module_completed(
+        database, current["membership_id"], program_id, module_id, body.time_spent_sec
+    )
+    certificate = await issue_certificate_if_eligible(
+        database, current["membership_id"], program_id
+    )
+    return {"progress": progress, "certificate": certificate}
 
 
 # ------------------------- Admin ------------------------------------------

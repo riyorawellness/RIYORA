@@ -76,6 +76,7 @@ class ProgramCreate(BaseModel):
     order_index: int = 0
     is_active: bool = True
     is_subscription: bool = False
+    level: Optional[int] = Field(default=None, ge=0, le=10)
 
 
 class ProgramUpdate(BaseModel):
@@ -92,6 +93,7 @@ class ProgramUpdate(BaseModel):
     order_index: Optional[int] = None
     is_active: Optional[bool] = None
     is_subscription: Optional[bool] = None
+    level: Optional[int] = Field(default=None, ge=0, le=10)
 
 
 # ---------- Program Modules -----------------------------------------------
@@ -138,6 +140,7 @@ class AssessmentCreate(BaseModel):
     questions: list[AssessmentQuestion] = Field(min_length=1)
     passing_marks: int = Field(ge=0)
     attempts_allowed: int = Field(default=3, ge=1)
+    randomize: bool = False
 
 
 class AssessmentUpdate(BaseModel):
@@ -145,6 +148,7 @@ class AssessmentUpdate(BaseModel):
     questions: Optional[list[AssessmentQuestion]] = None
     passing_marks: Optional[int] = Field(default=None, ge=0)
     attempts_allowed: Optional[int] = Field(default=None, ge=1)
+    randomize: Optional[bool] = None
 
 
 class AssessmentResultCreate(BaseModel):

@@ -1,10 +1,28 @@
-"""Programs — user list/get (active only), admin full CRUD + activate/deactivate."""
+"""Programs — user list/get (active only), admin full CRUD + activate/deactivate.
+
+Phase 4 additions:
+  * GET  /programs/me/dashboard         — categorised (purchased/completed/expired/locked/available)
+  * GET  /programs/me/continue-learning — resume card
+  * GET  /programs/{id}/eligibility     — can I purchase? (sequence gate)
+  * POST /programs/{id}/purchase        — record purchase intent (no payment yet)
+  * GET  /programs/{id}/status          — my access, expiry, progress in one call
+"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
+import uuid
+from datetime import datetime, timezone
 
 from app.core.deps import db, get_current_admin, get_current_user
 from app.models.phase2 import PaginatedResponse, ProgramCreate, ProgramUpdate
+from app.models.phase4 import PurchaseIntentCreate
 from app.repositories.base import BaseRepository
+from app.services.program_engine import (
+    categorise_programs,
+    check_purchase_allowed,
+    continue_learning,
+    is_program_completed_with_certificate,
+)
+from app.services.validity import compute_expiry, get_active_purchase, mark_expired_purchases
 
 router = APIRouter(prefix="/programs", tags=["Programs"])
 
@@ -49,6 +67,128 @@ async def get_program(
     doc = await _repo(database).get(program_id)
     if not doc:
         raise HTTPException(404, "Program not found")
+    return doc
+
+
+# ---------------------- Phase 4: engine endpoints (user) ------------------
+
+
+@router.get("/me/dashboard")
+async def my_dashboard(
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    await mark_expired_purchases(database, current["membership_id"])
+    buckets = await categorise_programs(database, current["membership_id"])
+    return {
+        "counts": {k: len(v) for k, v in buckets.items()},
+        **buckets,
+    }
+
+
+@router.get("/me/continue-learning")
+async def my_continue(
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    await mark_expired_purchases(database, current["membership_id"])
+    return await continue_learning(database, current["membership_id"])
+
+
+@router.get("/{program_id}/eligibility")
+async def eligibility(
+    program_id: str,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    program = await database.programs.find_one({"id": program_id, "deleted_at": None})
+    if not program:
+        raise HTTPException(404, "Program not found")
+    allowed, reason = await check_purchase_allowed(database, current["membership_id"], program)
+    already = await is_program_completed_with_certificate(database, current["membership_id"], program_id)
+    active = await get_active_purchase(database, current["membership_id"], program_id)
+    return {
+        "eligible": allowed,
+        "reason": reason if not allowed else None,
+        "already_completed": already,
+        "has_active_access": bool(active),
+    }
+
+
+@router.get("/{program_id}/status")
+async def program_status(
+    program_id: str,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    await mark_expired_purchases(database, current["membership_id"])
+    program = await database.programs.find_one({"id": program_id, "deleted_at": None})
+    if not program:
+        raise HTTPException(404, "Program not found")
+    program.pop("_id", None)
+    active = await get_active_purchase(database, current["membership_id"], program_id)
+    prog = await database.program_progress.find_one(
+        {"user_membership_id": current["membership_id"], "program_id": program_id, "deleted_at": None}
+    )
+    cert = await database.certificates.find_one(
+        {
+            "user_membership_id": current["membership_id"],
+            "program_id": program_id,
+            "status": "issued",
+            "deleted_at": None,
+        }
+    )
+    if prog:
+        prog.pop("_id", None)
+    if cert:
+        cert.pop("_id", None)
+    return {
+        "program": program,
+        "active_purchase": active,
+        "has_access": bool(active),
+        "progress": prog,
+        "certificate": cert,
+    }
+
+
+@router.post("/{program_id}/purchase", status_code=201)
+async def purchase_program(
+    program_id: str,
+    body: PurchaseIntentCreate,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    program = await database.programs.find_one({"id": program_id, "deleted_at": None, "is_active": True})
+    if not program:
+        raise HTTPException(404, "Program not found")
+
+    allowed, reason = await check_purchase_allowed(database, current["membership_id"], program)
+    if not allowed:
+        raise HTTPException(403, reason)
+
+    now = datetime.now(timezone.utc)
+    expiry = compute_expiry(now, int(program.get("validity_days", 365)))
+    invoice = f"INV-{uuid.uuid4().hex[:12].upper()}"
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_membership_id": current["membership_id"],
+        "program_id": program_id,
+        "price_paid": float(body.price_paid or program.get("price", 0)),
+        "discount": float(body.discount or program.get("discount", 0)),
+        "gst_amount": float(body.gst_amount or 0),
+        "total": float(body.total or 0),
+        "invoice_number": invoice,
+        "purchase_date": now.isoformat(),
+        "expiry_date": expiry.isoformat(),
+        "renewal_date": None,
+        "status": "active",
+        "source": "user",
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+        "deleted_at": None,
+    }
+    await database.program_purchases.insert_one(doc)
+    doc.pop("_id", None)
     return doc
 
 
