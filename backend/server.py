@@ -21,6 +21,7 @@ from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
+from app.db.seed_legal import seed_legal_pages  # noqa: E402
 from app.db.mongo import (  # noqa: E402
     create_indexes,
     get_client,
@@ -85,6 +86,9 @@ async def lifespan(_app: FastAPI):
     await seed_program_categories()
     await seed_app_settings()
     await seed_admin()
+    # Phase 10 — legal & support placeholder CMS pages
+    from app.db.mongo import get_db  # local import to avoid cycle
+    await seed_legal_pages(get_db())
     logger.info("Startup complete.")
     yield
     get_client().close()

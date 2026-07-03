@@ -10,18 +10,22 @@ import {
   Mail,
   Receipt,
   Repeat,
+  ScrollText,
   Settings as SettingsIcon,
   ShieldCheck,
+  ShieldQuestion,
   User2,
   Wallet,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useSystemInfo } from "@/hooks/useSystemInfo";
 import { TID } from "@/constants/testIds";
 import { toast } from "sonner";
 
 export default function Profile() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
+  const sys = useSystemInfo();
 
   const doLogout = async () => {
     await logout();
@@ -75,7 +79,14 @@ export default function Profile() {
       <Section title="Account">
         <Item to="/app/bank" icon={Landmark} title="Bank details" hint="Payout account" />
         <Item to="/app/settings" icon={SettingsIcon} title="Settings" hint="Theme, language, privacy" />
-        <Item to="/app/support" icon={HelpCircle} title="Support" hint="FAQ & contact" />
+      </Section>
+
+      <Section title="Legal & Support">
+        <Item to="/legal/privacy"       icon={ShieldCheck}   title="Privacy Policy"   hint="How we handle your data" testid="profile-nav-privacy" />
+        <Item to="/legal/terms"         icon={ScrollText}    title="Terms of Service" hint="Rules of the platform"   testid="profile-nav-terms" />
+        <Item to="/legal/data-security" icon={ShieldQuestion}title="Data & Security"  hint="Security controls we run" testid="profile-nav-datasecurity" />
+        <Item to="/legal/faq"           icon={HelpCircle}    title="Help & FAQ"       hint="Common questions"        testid="profile-nav-faq" />
+        <Item to="/legal/contact"       icon={Mail}          title="Contact Us"       hint={sys?.support_email || "info@riyorawellness.com"} testid="profile-nav-contact" />
       </Section>
 
       <button
@@ -91,7 +102,18 @@ export default function Profile() {
         </div>
       </button>
 
-      <p className="mt-6 text-center text-[10px] text-muted-foreground">
+      {/* App footer */}
+      <div className="mt-8 border-t border-neutral-100 pt-6 text-center" data-testid="profile-app-footer">
+        <div className="rw-eyebrow">RIYORA Wellness</div>
+        <div className="mt-1 text-[11px] text-muted-foreground" data-testid="profile-app-version">
+          Version {sys?.application_version || "1.0.0"}
+        </div>
+        <div className="mt-1 text-[10px] text-muted-foreground" data-testid="profile-app-copyright">
+          © {new Date().getFullYear()} {sys?.company_name || "RIYORA Wellness"}. All Rights Reserved.
+        </div>
+      </div>
+
+      <p className="mt-4 text-center text-[10px] text-muted-foreground">
         <ShieldCheck className="mr-1 inline h-3 w-3" /> Secured with mobile OTP · JWT
       </p>
     </div>

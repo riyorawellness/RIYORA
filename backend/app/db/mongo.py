@@ -183,9 +183,11 @@ _DEFAULT_APP_SETTINGS = [
     {"key": "commission_l1_percent", "value": 10, "description": "Referral commission L1 (%)"},
     {"key": "commission_l2_percent", "value": 5, "description": "Referral commission L2 (%)"},
     {"key": "commission_l3_percent", "value": 2, "description": "Referral commission L3 (%)"},
-    {"key": "support_email", "value": "care@riyorawellness.com", "description": "Support email"},
+    {"key": "support_email", "value": "info@riyorawellness.com", "description": "Support email"},
     {"key": "support_phone", "value": "+91-9999999999", "description": "Support phone"},
     {"key": "app_version", "value": "1.0.0", "description": "Current app version"},
+    {"key": "application_version", "value": "1.0.0", "description": "Application version shown to users"},
+    {"key": "company_name", "value": "RIYORA Wellness", "description": "Company display name"},
 ]
 
 

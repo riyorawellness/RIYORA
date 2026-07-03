@@ -22,6 +22,7 @@ import Profile from "@/pages/Profile";
 import Notifications from "@/pages/Notifications";
 import Settings from "@/pages/Settings";
 import Offline from "@/pages/Offline";
+import LegalPage from "@/pages/LegalPage";
 import Purchases from "@/pages/Purchases";
 import Commissions from "@/pages/Commissions";
 import Payouts from "@/pages/Payouts";
@@ -55,6 +56,7 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/offline" element={<Offline />} />
+          <Route path="/legal/:slug" element={<LegalPage />} />
 
           {/* Referral shortcut — prefills referral on registration */}
           <Route path="/join/:referral" element={<Register />} />

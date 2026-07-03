@@ -28,11 +28,12 @@ class AdminResetUserPassword(BaseModel):
 CMS_SLUGS = {
     "about": "About Us",
     "privacy": "Privacy Policy",
-    "terms": "Terms & Conditions",
+    "terms": "Terms of Service",
     "refund": "Refund Policy",
     "contact": "Contact Us",
-    "faq": "FAQ",
+    "faq": "Help & FAQ",
     "support": "Support",
+    "data-security": "Data & Security",
 }
 
 

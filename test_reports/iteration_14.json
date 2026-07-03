@@ -1,0 +1,45 @@
+{
+  "summary": "Phase 10 legal & support pages — full backend + frontend regression completed. All 10 backend endpoints and every UI acceptance criterion in the review request passed. Backend pytest: 12/12 in /app/backend/tests/test_phase10.py (public CMS GETs for privacy/terms/data-security/faq/contact, /system/public no-auth, admin login, admin CMS list of 8 slugs, admin PUT /admin/cms/pages/privacy round-trip with revert, admin PUT /admin/system/settings application_version round-trip with revert, BRV overall=PASS 36/36). Frontend Playwright: Welcome consent gate verified (all 4 testids present, checkbox unchecked initially, disabled buttons prevent navigation, checkbox tick enables both /login and /register navigation, terms link -> /legal/terms). All 5 legal slugs render title + non-empty body (privacy 1730c / terms 2297c / data-security 1648c / faq 1549c / contact 337c), updated date, back button (works — returns to /welcome), footer '© 2026 RIYORA Wellness. All Rights Reserved. · v1.0.0'. FAQ & Contact mailto anchors verified with exact href 'mailto:info@riyorawellness.com?subject=Support%20Request%20-%20RIYORA%20Wellness'. Profile /app/profile after user login shows all 5 profile-nav-* items under a 'Legal & Support' header; profile-app-footer contains 'Version 1.0.0' and '© 2026 RIYORA Wellness. All Rights Reserved.'; profile-nav-privacy navigates to /legal/privacy. Admin login (9999999999/Admin@12345) still succeeds; BRV still 36/36 PASS.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/welcome consent gate",
+        "issues": [
+          "When the user clicks [data-testid='welcome-create-account-btn'] WITHOUT ticking the consent checkbox, navigation is correctly blocked (stays on /welcome) — however the toast warning 'Please accept the Terms & Conditions and Privacy Policy to continue.' does NOT actually appear. Root cause: the <button> inside the <Link> is rendered with the native `disabled` attribute, so React never fires the click event that would run the guard() handler on the parent Link, meaning toast.warning is never invoked. The security intent (block navigation) is satisfied, but the user gets no feedback explaining why the button did nothing. Suggest either (a) drop `disabled` and rely solely on the guard() to preventDefault + show toast, or (b) attach onPointerDown on the wrapper to fire the toast even when the button is disabled. Non-blocking cosmetic/UX issue."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase10.py",
+    "/app/test_reports/pytest/phase10_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL / MINOR: Fix Welcome.jsx so the 'Please accept the Terms & Conditions and Privacy Policy to continue.' toast fires when the disabled Create-account / Sign-in buttons are clicked without consent. Currently the toast never appears because the native disabled attribute swallows the click event before the parent Link's onClick guard() runs. Non-critical — navigation is still correctly blocked."
+  ],
+  "critical_code_review_comments": [
+    "Welcome.jsx: The dual-safety pattern (disabled button + Link guard onClick) causes the toast warning to never fire on click. Either remove `disabled` (relying on guard) or move guard to onMouseDown/onPointerDown of the wrapper Link. Documented above.",
+    "LegalPage.jsx correctly uses react-markdown to render CMS body; footer version/copyright derives from useSystemInfo hook which has a 30s TTL cache — admin edits to application_version will take up to 30s to appear on already-open tabs (acceptable).",
+    "cms.py public GET /cms/pages/{slug} returns 200 with `empty:true` stub for missing/unpublished pages instead of 404 — makes the frontend LegalPage render a graceful 'not published yet' placeholder. Good UX choice.",
+    "seed_legal.py inserts pages only if slug not already present — admin edits are never overwritten on restart. Verified via edit + restart-safe pattern."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase10.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 pytest cases in test_phase10.py)",
+    "frontend": "100% on functional acceptance criteria (welcome consent gate, all 5 legal pages, profile Legal & Support section, footer, navigation, mailto hrefs). 1 minor UX gap on toast display."
+  },
+  "test_credentials": "Admin 9999999999 / Admin@12345 (via /api/admin/login). Test user created for profile flow: mobile 8710005086 / password Passw0rd! / membership RW741567 (sponsor RW000000). OTP verify was fine with dev code 123456.",
+  "seed_data_creation": "One TEST_ user (TEST Phase10 User, mobile 8710005086, membership RW741567) via full OTP register flow. No CMS mutations remain — admin edit test both edited AND reverted privacy body and application_version back to originals. BRV was verified last, still 36/36.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 10 (legal & support pages) is fully verified. When running pytest locally you must pass REACT_APP_BACKEND_URL as an env var since backend/tests do not read frontend/.env directly; recommended command: `cd /app && REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL frontend/.env | cut -d= -f2) python -m pytest backend/tests/test_phase10.py -v`. The /api/auth/register endpoint REQUIRES `confirm_password` in addition to `password` (also `state` + `city`) — please update /app/memory/test_credentials.md. If BRV or admin login ever fails, clear login_attempts collection as noted in review context. Only known cosmetic issue: welcome page's toast warning doesn't fire because the button is disabled; navigation is correctly blocked though.",
+  "rca_of_the_issue": "N/A — feature-verification pass; no bug reported. The one cosmetic finding (toast not firing on click of disabled Create-account/Sign-in buttons on /welcome) is caused by the native `disabled` HTML attribute suppressing the click event before it reaches the parent React <Link onClick={guard}> handler. Optional fix suggested in critical_code_review_comments."
+}
