@@ -38,12 +38,15 @@ import AdminBanners from "@/pages/AdminBanners";
 import AdminAuditLog from "@/pages/AdminAuditLog";
 import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminReports from "@/pages/AdminReports";
+import AdminQA from "@/pages/AdminQA";
 import AdminShell from "@/components/AdminShell";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
         <Routes>
           {/* Splash + public */}
           <Route path="/" element={<Splash />} />
@@ -105,6 +108,7 @@ function App() {
             <Route path="/admin/cms" element={<AdminCMS />} />
             <Route path="/admin/system" element={<AdminSystem />} />
             <Route path="/admin/audit" element={<AdminAuditLog />} />
+            <Route path="/admin/qa" element={<AdminQA />} />
           </Route>
 
           <Route path="*" element={<Welcome />} />
@@ -112,6 +116,7 @@ function App() {
       </BrowserRouter>
       <Toaster position="top-center" richColors closeButton />
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

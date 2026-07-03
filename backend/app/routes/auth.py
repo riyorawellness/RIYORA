@@ -27,6 +27,7 @@ from app.models.schemas import (
     VerifyOtpRequest,
 )
 from app.utils.audit import log_action
+from app.core.security_mw import check_lockout, record_failed_login, reset_lockout
 from app.utils.membership import generate_membership_id
 from app.utils.otp import (
     PURPOSE_FORGOT,
@@ -188,11 +189,14 @@ async def register(body: RegisterRequest, database: AsyncIOMotorDatabase = Depen
 
 @router.post("/login", response_model=dict)
 async def login(body: LoginRequest, database: AsyncIOMotorDatabase = Depends(db)):
+    await check_lockout(database, body.mobile, "user")
     user = await database.users.find_one({"mobile": body.mobile, "deleted_at": None})
     if not user or not verify_password(body.password, user["password_hash"]):
+        await record_failed_login(database, body.mobile, "user")
         raise HTTPException(status_code=401, detail="Invalid mobile or password")
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is inactive")
+    await reset_lockout(database, body.mobile, "user")
     tokens = await _issue_tokens(database, subject=user["membership_id"], role="user")
     await log_action(database, actor_id=user["membership_id"], action="login", entity="user")
     return {"user": user_to_public(user), "tokens": tokens.model_dump()}

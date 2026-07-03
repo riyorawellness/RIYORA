@@ -23,6 +23,7 @@ from app.models.schemas import (
     VerifyOtpRequest,
 )
 from app.utils.audit import log_action
+from app.core.security_mw import check_lockout, record_failed_login, reset_lockout
 from app.utils.otp import PURPOSE_FORGOT, consume_verified_otp, send_otp, verify_otp
 from app.utils.serializers import admin_to_public
 
@@ -50,9 +51,12 @@ async def _issue_admin_tokens(database: AsyncIOMotorDatabase, mobile: str) -> To
 
 @router.post("/login", response_model=dict)
 async def admin_login(body: LoginRequest, database: AsyncIOMotorDatabase = Depends(db)):
+    await check_lockout(database, body.mobile, "admin")
     admin = await database.admins.find_one({"mobile": body.mobile, "deleted_at": None})
     if not admin or not verify_password(body.password, admin["password_hash"]):
+        await record_failed_login(database, body.mobile, "admin")
         raise HTTPException(status_code=401, detail="Invalid mobile or password")
+    await reset_lockout(database, body.mobile, "admin")
     tokens = await _issue_admin_tokens(database, admin["mobile"])
     await log_action(database, actor_id=admin["mobile"], action="admin_login", entity="admin")
     return {"admin": admin_to_public(admin), "tokens": tokens.model_dump()}

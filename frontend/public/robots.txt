@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /welcome
+Allow: /login
+Allow: /register
+
+# Protect authenticated / admin surfaces from indexing
+Disallow: /app/
+Disallow: /admin/
+Disallow: /api/
+
+# Sitemap
+Sitemap: /sitemap.xml

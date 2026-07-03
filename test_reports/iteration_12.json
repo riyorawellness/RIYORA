@@ -1,0 +1,51 @@
+{
+  "summary": "Phase 9 (Testing, Security Hardening, PWA/SEO polish) — comprehensive backend + frontend testing. Backend: 19/19 pytest cases pass in /app/backend/tests/test_phase9.py covering BRV JSON+PDF, admin auth guard on BRV/health.deep, brute-force lockout on /api/auth/login and /api/admin/login (5→429 with 15-minute lock, cleanup performed), successful-login clears attempts, security headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS, CSP), X-Request-ID present on every response, /health/live, /health/ready, /health/deep (uptime/mongo_ping_ms/counts/errors_24h), regression spot-checks (/admin/dashboard/overview, /analytics/dashboard, /admin/reports/payments, /reports/income?fmt=pdf as a real user), SEO (/robots.txt, /sitemap.xml, og+twitter meta on index.html). Frontend: /admin/qa page loads with admin-qa-page testid, empty-state renders, admin-nav-qa navigates correctly, qa-run-btn produces PASS 36/36 verdict card, all 10 category cards render with 36 green check icons and correct rule details, qa-pdf-btn triggers a real download (riyora-brv-2026-07-03.pdf). BRV overall = PASS, 36 rules, 0 failed. No blocking issues; one minor design/testid finding noted.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/admin/qa",
+        "issues": [
+          "The category-card data-testid is derived from category.toLowerCase().replace(/[^a-z0-9]/g,'-') which produces qa-cat-refer---earn (3 consecutive dashes) for 'Refer & Earn'. Reads oddly; consider collapsing consecutive dashes and stripping leading/trailing dashes: `cat.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')` → yields the cleaner qa-cat-refer-earn. Test-request docs also referenced the clean form. All other categories are unaffected.",
+          "Served /admin/qa emitted a stale index.html at test start (missing og/twitter meta tags) even though /app/frontend/public/index.html contains them. A frontend restart via supervisor picked up the new file. If the dev server was long-running before the phase-9 tag additions, this can be a source of confusion during smoke tests; noting for context. Post-restart the tags are correctly served."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase9.py",
+    "/app/test_reports/pytest/phase9_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL cosmetic: collapse consecutive dashes in the AdminQA category data-testid derivation so 'Refer & Earn' becomes qa-cat-refer-earn instead of qa-cat-refer---earn.",
+    "OPTIONAL: if og:image points to /icons/og-image.png make sure that asset actually exists (not verified in this pass; static file presence check is out of scope)."
+  ],
+  "critical_code_review_comments": [
+    "check_lockout in /app/backend/app/core/security_mw.py silently ignores ValueError/TypeError when parsing locked_until — good defensive coding, but any parse failure means a stale lockout row will never re-lock. Consider deleting the malformed row instead of pass-through.",
+    "record_failed_login sets `locked_until` on the 5th failure (attempts >= MAX_ATTEMPTS = 5), which means the *5th* wrong attempt itself returns 401 but *from the 6th onward* the caller gets 429. The implementation matches the test expectation and the request; just noting the off-by-one perception if a stricter policy wants immediate 429 on the 5th.",
+    "In brv.py rule _c_sequential_purchase only looks at 200 purchases and checks whether the user has ANY prior purchase (not strictly a *lower-level* one). It's a loose invariant; the rule text says 'L≥2 preceded by prior'. Acceptable but the guarantee is weaker than the wording suggests.",
+    "SecurityHeadersMiddleware uses response.headers.setdefault, so downstream code can override a header (e.g., a route that sets a permissive CSP for iframes). Currently no route does that, so it's fine — just be aware the middleware is non-authoritative.",
+    "reset_lockout is called AFTER verify_password succeeds but BEFORE the is_active check on user login. If an inactive user logs in with the correct password, their lockout counter is cleared even though login is refused. Very minor — inactive users are rare.",
+    "The BRV run does 36 sequential Mongo queries (one per rule) — takes ~1s on the current DB. Fine at this scale; could be parallelised with asyncio.gather if collections grow to millions.",
+    "/api/health/live and /ready are unauthenticated as expected. HSTS/CSP still applied — good.",
+    "The frontend AdminQA page's downloadPDF uses api.get with responseType: 'blob'. If the axios interceptor auto-parses errors as JSON, a blob-mode 401/500 would show `[object Blob]` in the toast. Consider handling blob-error responses explicitly. Not seen in this run since auth was valid."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase9.py (new — 19 test cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (19/19 Phase 9 pytest cases)",
+    "frontend": "100% (all Phase 9 UI + integration flows verified)"
+  },
+  "test_credentials": "Admin 9999999999 / Admin@12345 works. One TEST_P9_ReportsUser was registered mid-run (RW###### auto-assigned, dev OTP 123456, password Passw0rd!) to validate /api/reports/income?fmt=pdf as a user token.",
+  "seed_data_creation": "1 test user (TEST_P9_ReportsUser) created via /api/auth/register with a random mobile prefixed 9. login_attempts rows for user 8888800001 and admin 9999999999 were created and CLEANED UP via direct Mongo delete_one at the end of each brute-force test to prevent stale lockout across runs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 9 is fully green. /app/backend/tests/test_phase9.py runs standalone with `pytest tests/test_phase9.py -v -n 0 --junitxml=/app/test_reports/pytest/phase9_results.xml` (note: pytest-xdist is configured with -n 2 --dist loadscope by default in /app/backend/pytest.ini; the brute-force tests must NOT run in parallel with each other because they mutate login_attempts state — using -n 0 keeps them serialized). BRV verdict was PASS 36/36 at test time; if any new phase changes seed data or adds negative price/GST rows, expect P2 to flip. IMPORTANT: if any future test fails admin login unexpectedly, run `db.login_attempts.delete_one({'mobile':'9999999999','role':'admin'})` to clear a stale lockout. Prior 128 tests (Phases 1-8) unchanged — spot-checked overview/analytics/reports and all 200 OK.",
+  "rca_of_the_issue": "No unresolved issues. Three tests initially failed due to test-code artifacts (missing BASE_URL env-var fallback fixed by reading /app/frontend/.env; income PDF endpoint requires a user token not admin — fixed by registering a test user; wrong-password too short triggered 422 Pydantic validation — fixed by using WrongPass1!). One environmental blip: the served /index.html was stale (missing og tags) until frontend was restarted; not a code bug, just deploy-order artefact."
+}

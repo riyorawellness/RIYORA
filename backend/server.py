@@ -62,6 +62,12 @@ from app.routes import cms as cms_routes  # noqa: E402
 from app.routes import admin_phase7 as admin_phase7_routes  # noqa: E402
 from app.routes import analytics as analytics_routes  # noqa: E402
 from app.routes import admin_reports as admin_reports_routes  # noqa: E402
+from app.routes import health as health_routes  # noqa: E402
+from app.routes import qa as qa_routes  # noqa: E402
+from app.core.security_mw import SecurityHeadersMiddleware, limiter  # noqa: E402
+from app.core.logging_mw import RequestIdMiddleware  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,6 +107,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIdMiddleware)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -172,5 +182,7 @@ api_router.include_router(cms_routes.admin_router)
 api_router.include_router(admin_phase7_routes.router)
 api_router.include_router(analytics_routes.router)
 api_router.include_router(admin_reports_routes.router)
+api_router.include_router(health_routes.router)
+api_router.include_router(qa_routes.router)
 
 app.include_router(api_router)
