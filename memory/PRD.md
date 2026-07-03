@@ -120,3 +120,21 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - Bugs caught + fixed during testing: log_action collection mismatch, system-settings setdefault-after-None bug, /notifications/me route collision, PaginatedResponse stripping the `unread` field. Final: 97/97 tests pass across Phase 5+6+7.
 
 ## Backlog (Phase 8+)
+
+## Delivered on 2026-07-03 (Phase 8 — Reports & Analytics)
+- Backend services: `services/analytics.py` (MongoDB aggregation pipelines: revenue summary/series, program mix, state distribution, source split, user growth, user KPIs, commission summary+by-level, top earners/buyers, subscription health with activity meter breakdown, GST summary, payout summary, user personal earnings+downline series), `services/exports.py` (generic CSV/Excel/PDF exporter — openpyxl + reportlab, supports money/date/datetime/int/bool typed columns), `services/user_reports.py` (column/row builders for all 5 user report types).
+- Backend routes:
+  - `/api/analytics/*` (admin): kpis, revenue, programs, states, user-growth, commissions, leaderboard, subscriptions, gst, dashboard (composite).
+  - `/api/analytics/me` (user): personal earnings series, downline growth series, downline counts, activity meter, spent.
+  - `/api/admin/reports/{report_type}` (admin): 7 report types — users, programs, subscriptions, payments, referrals, activity, assessments — with filters (since/until/q/status/program_id/state/level) and pagination.
+  - `/api/admin/reports/{report_type}/export?fmt=csv|excel|pdf` — full-dataset export (capped at 20k rows).
+  - `/api/reports/{type}?fmt=pdf|csv|excel` — user reports now multi-format (backward-compatible default pdf).
+- Frontend:
+  - `pages/AdminAnalytics.jsx` — rich financial dashboard with KPI cards (revenue+compare, GST, users, subs, commission liability, net margin), revenue trend area chart (current vs previous), user growth bar chart, program mix pie, state ranking table with share bars, commissions-by-level stacked bar, subscription health tiles + activity meter distribution, leaderboards (top earners + buyers), payouts + GST snapshot, date presets (7d/30d/90d/YTD/1y) + custom range + granularity switch + refresh.
+  - `pages/AdminReports.jsx` — tabbed detailed reports (7 types), filter bar (search/date/status/level), paginated table, one-click CSV/Excel/PDF export.
+  - `pages/Reports.jsx` (user) — enhanced with personal KPI tiles (earnings/month/downline/activity), earnings trend area chart, downline growth bar chart, and PDF/Excel/CSV downloads per report.
+  - `services/analytics.js` — new API client + downloadBlob helper.
+  - Admin nav (`AdminShell.jsx`) — new "Analytics" + "Reports" left-rail items.
+- Tests: `/app/backend/tests/test_phase8.py` — 31/31 pass covering all endpoints, filters, exports, auth guards.
+- Deps: `openpyxl 3.1.5` added; `recharts` (already present) drives all charts.
+- DB: added indexes for `program_purchases.purchase_date`, `program_purchases.program_id`.
