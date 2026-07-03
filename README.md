@@ -1,0 +1,104 @@
+# RIYORA WELLNESS — Phase 1 Foundation
+
+**Tagline:** Heal. Learn. Earn.
+
+Phase 1 delivers the production-ready **foundation** of the RIYORA WELLNESS platform: React PWA (mobile-first, installable) + FastAPI backend + MongoDB. Programs, payments, referral commissions, activity meter, reports, and notifications will follow in later phases.
+
+## Stack
+- **Frontend**: React 19, React Router 7, TanStack Query, Axios, Tailwind + shadcn/ui, Sonner (toasts), Framer Motion — configured as a **Progressive Web App** (manifest + service worker + installable).
+- **Backend**: FastAPI (Python 3.11), Motor (async MongoDB), Pydantic v2, bcrypt, PyJWT.
+- **Database**: MongoDB (used as a scalable fallback for PostgreSQL — collections mirror the tables in the spec: `users`, `admins`, `memberships`, `otp_verifications`, `refresh_tokens`, `audit_logs`, `settings`, `notifications`, `profiles`).
+- **Docs**: Swagger UI at `${BACKEND_URL}/docs`, ReDoc at `/redoc`.
+
+## Backend architecture (modular, SOLID)
+```
+backend/
+├── server.py                     # FastAPI entry, lifespan, exception handlers
+└── app/
+    ├── core/
+    │   ├── config.py             # env-driven Settings singleton
+    │   ├── security.py           # bcrypt + JWT (access/refresh)
+    │   └── deps.py               # DB & auth guards (get_current_user / get_current_admin)
+    ├── db/mongo.py               # client, indexes, seeding
+    ├── models/schemas.py         # Pydantic v2 request/response DTOs
+    ├── routes/
+    │   ├── auth.py               # OTP / register / login / refresh / logout / reset
+    │   ├── user.py               # profile
+    │   ├── membership.py         # referral validation + lookup
+    │   └── admin.py              # admin login / profile / stats / users
+    └── utils/
+        ├── membership.py         # RW###### id generator (unique, collision-safe)
+        ├── otp.py                # OTP gen/verify (dev mode = 123456)
+        ├── audit.py              # audit_logs writer
+        └── serializers.py        # doc → public DTO
+```
+
+## Frontend structure
+```
+frontend/src/
+├── App.js                        # BrowserRouter routes
+├── index.css                     # design tokens (earthy palette, Cormorant + Manrope)
+├── lib/api.js                    # axios + auto-refresh interceptor
+├── context/AuthContext.jsx       # session + login/register/logout
+├── components/ProtectedRoute.jsx # user & admin guards
+├── constants/testIds.js          # data-testid registry
+└── pages/
+    ├── Landing.jsx
+    ├── Register.jsx              # 4-step: mobile → OTP → details+referral → confirm
+    ├── Login.jsx
+    ├── ForgotPassword.jsx
+    ├── Dashboard.jsx
+    ├── Profile.jsx
+    ├── AdminLogin.jsx
+    └── AdminDashboard.jsx
+```
+
+## Auth flow
+1. **Send OTP** → `POST /api/auth/send-otp` (5-min TTL, 5/hour rate limit, dev-mode returns `123456`).
+2. **Verify OTP** → `POST /api/auth/verify-otp` (marks record verified).
+3. **Validate Referral** → `POST /api/membership/validate-referral` (returns sponsor name + ID).
+4. **Register** → `POST /api/auth/register` (mandates verified OTP + valid referral, auto-generates `RW######` unique Membership ID, inserts into membership tree, issues JWT access + refresh).
+5. **Login** → `POST /api/auth/login` (mobile + password → JWT pair).
+6. **Refresh** → `POST /api/auth/refresh` (rotates refresh tokens, revokes previous).
+7. **Forgot password** → OTP-verified `POST /api/auth/reset-password` (revokes all refresh tokens on success).
+
+## Security
+- Access token: 15 min. Refresh token: 7 days (rotation on use).
+- bcrypt password hashing.
+- Refresh token store with `revoked` flag → true logout & password-reset revocation.
+- OTP: 5-min TTL, single-use, 5/hour resend limit.
+- Referral ID mandatory; sponsor lookup validated server-side.
+- Global exception handler flattens Pydantic errors so React can render `detail` as a string.
+- Audit logs written for register/login/reset.
+
+## Company account (root of referral tree)
+Seeded on startup: `RW000000` — RIYORA Wellness. Cannot be deleted or edited. Any new user's `sponsor_membership_id` traces back to this root.
+
+## PWA
+- `public/manifest.json` (theme #B85C38, standalone display).
+- `public/sw.js` (cache-first for shell, network-only for `/api/*`).
+- Auto-registered from `index.html` on load.
+- On mobile Chrome/Safari, users can **Add to Home Screen** and it opens fullscreen.
+
+## Environment variables
+```
+# backend/.env
+MONGO_URL, DB_NAME, CORS_ORIGINS
+JWT_SECRET, JWT_ACCESS_TTL_MIN, JWT_REFRESH_TTL_DAYS
+OTP_TTL_MIN, OTP_RESEND_LIMIT_PER_HOUR, OTP_DEV_MODE, OTP_DEV_CODE
+ADMIN_MOBILE, ADMIN_PASSWORD, ADMIN_NAME
+COMPANY_MEMBERSHIP_ID, COMPANY_NAME
+
+# frontend/.env
+REACT_APP_BACKEND_URL
+```
+
+## Credentials (dev)
+- **Admin**: mobile `9999999999`, password `Admin@12345` → `/admin/login`.
+- **User registration**: use referral `RW000000`, OTP `123456`.
+
+## API docs
+Full OpenAPI/Swagger auto-generated by FastAPI: visit `${BACKEND_URL}/docs`.
+
+## Not in this phase (by design)
+Programs, Modules, Payments, Razorpay, AutoPay, Referral Commissions, Activity Meter, Reports, Notifications, Certificates, CMS, Business Logic. These plug into the same folder structure without restructuring.

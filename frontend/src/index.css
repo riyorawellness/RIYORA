@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   RIYORA WELLNESS — Design tokens
+   Palette: warm earth (Terracotta / Saffron / Sage / Bone) - deliberately
+   avoids purple/violet gradients and generic tech-startup blues.
+--------------------------------------------------------------------------- */
+
+@layer base {
+  :root {
+    /* raw palette (for direct use) */
+    --rw-bone: 42 43% 93%;         /* #F5EFE6 background */
+    --rw-parchment: 40 34% 88%;    /* #ECE3D2 subtle surface */
+    --rw-terracotta: 15 51% 47%;   /* #B85C38 primary */
+    --rw-terracotta-deep: 12 55% 34%; /* #86381F hover */
+    --rw-saffron: 30 84% 55%;      /* #E8862B accent */
+    --rw-gold: 40 76% 51%;         /* #E0A62E highlight */
+    --rw-sage: 90 15% 38%;         /* #5C6E4B secondary */
+    --rw-ink: 25 20% 15%;          /* #2D251E body text */
+    --rw-charcoal: 28 12% 26%;     /* #4A413A muted headings */
+
+    /* shadcn tokens (light theme mapped to earth palette) */
+    --background: var(--rw-bone);
+    --foreground: var(--rw-ink);
+    --card: 42 60% 98%;
+    --card-foreground: var(--rw-ink);
+    --popover: 42 60% 98%;
+    --popover-foreground: var(--rw-ink);
+    --primary: var(--rw-terracotta);
+    --primary-foreground: 42 60% 98%;
+    --secondary: var(--rw-parchment);
+    --secondary-foreground: var(--rw-charcoal);
+    --muted: 40 22% 90%;
+    --muted-foreground: 28 15% 40%;
+    --accent: var(--rw-saffron);
+    --accent-foreground: 25 30% 12%;
+    --destructive: 0 65% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 35 18% 78%;
+    --input: 35 18% 82%;
+    --ring: var(--rw-terracotta);
+    --radius: 0.75rem;
+
+    --chart-1: var(--rw-terracotta);
+    --chart-2: var(--rw-sage);
+    --chart-3: var(--rw-gold);
+    --chart-4: var(--rw-saffron);
+    --chart-5: var(--rw-charcoal);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background-color: hsl(var(--rw-saffron) / 0.35);
+    color: hsl(var(--rw-ink));
+  }
+
+  [data-debug-wrapper="true"] { display: contents !important; }
+}
+
+@layer components {
+  .rw-container { @apply mx-auto w-full max-w-6xl px-6; }
+
+  .rw-serif { font-family: "Cormorant Garamond", Georgia, serif; }
+
+  .rw-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.24em];
+    color: hsl(var(--rw-terracotta));
+  }
+
+  .rw-card {
+    @apply rounded-2xl border bg-card p-6 shadow-sm transition-all;
+    border-color: hsl(var(--border));
+  }
+
+  .rw-card:hover {
+    box-shadow: 0 8px 30px -12px hsl(var(--rw-terracotta) / 0.18);
+    transform: translateY(-1px);
+  }
+
+  .rw-grain {
+    position: relative;
+    isolation: isolate;
+  }
+  .rw-grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.35;
+    background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.72 0 0 0 0 0.36 0 0 0 0 0.22 0 0 0 0.12 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    pointer-events: none;
+  }
+
+  .rw-hero-radial {
+    background:
+      radial-gradient(1200px 600px at 12% -10%, hsl(var(--rw-saffron) / 0.20), transparent 60%),
+      radial-gradient(900px 500px at 105% 10%, hsl(var(--rw-terracotta) / 0.15), transparent 55%),
+      radial-gradient(700px 500px at 80% 110%, hsl(var(--rw-sage) / 0.18), transparent 55%),
+      hsl(var(--rw-bone));
+  }
+
+  .rw-divider {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      hsl(var(--rw-terracotta) / 0.4),
+      transparent
+    );
+  }
+
+  /* subtle entrance animation */
+  .rw-rise { animation: rwRise 0.6s ease-out both; }
+  @keyframes rwRise {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
