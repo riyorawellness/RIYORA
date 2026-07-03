@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 export function ProtectedUserRoute({ children }) {
   const { user, status } = useAuth();
   if (status === "loading") return <FullScreenLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/welcome" replace />;
   return children;
 }
 
