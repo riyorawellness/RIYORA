@@ -19,6 +19,7 @@ class PaginatedResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+    unread: Optional[int] = None
 
 
 # ---------- Profiles -------------------------------------------------------

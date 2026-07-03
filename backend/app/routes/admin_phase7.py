@@ -79,12 +79,16 @@ async def get_system_settings(
     database: AsyncIOMotorDatabase = Depends(db),
     _admin: dict = Depends(get_current_admin),
 ):
-    out = {}
+    out: dict = {}
     for k in SYSTEM_KEYS:
         out[k] = await _get(database, k)
-    out.setdefault("company_name", "RIYORA Wellness")
-    out.setdefault("application_version", "1.0.0")
-    out.setdefault("maintenance_mode", False)
+    # Apply defaults only when unset (get() returned None).
+    if out.get("company_name") is None:
+        out["company_name"] = "RIYORA Wellness"
+    if out.get("application_version") is None:
+        out["application_version"] = "1.0.0"
+    if out.get("maintenance_mode") is None:
+        out["maintenance_mode"] = False
     return out
 
 
@@ -113,7 +117,8 @@ async def get_system_public(database: AsyncIOMotorDatabase = Depends(db)):
     ]:
         out[k] = await _get(database, k)
     out.setdefault("company_name", "RIYORA Wellness")
-    return out
+    # Filter None values from public payload so client-side defaults kick in cleanly.
+    return {k: v for k, v in out.items() if v is not None} or {"company_name": "RIYORA Wellness"}
 
 
 # ============ Security Settings ==========================================
@@ -132,13 +137,18 @@ async def get_security_settings(
     database: AsyncIOMotorDatabase = Depends(db),
     _admin: dict = Depends(get_current_admin),
 ):
-    out = {}
+    out: dict = {}
     for k in SECURITY_KEYS:
         out[k] = await _get(database, k)
-    out.setdefault("password_min_length", 8)
-    out.setdefault("otp_expiry_seconds", 300)
-    out.setdefault("login_attempt_limit", 5)
-    out.setdefault("session_timeout_minutes", 60)
+    defaults = {
+        "password_min_length": 8,
+        "otp_expiry_seconds": 300,
+        "login_attempt_limit": 5,
+        "session_timeout_minutes": 60,
+    }
+    for k, v in defaults.items():
+        if out.get(k) is None:
+            out[k] = v
     return out
 
 
@@ -481,36 +491,7 @@ async def admin_list_notifications(
     }
 
 
-# ============ User Notifications (read-side) ============================
-
-
-@router.get("/notifications/me")
-async def my_notifications(
-    database: AsyncIOMotorDatabase = Depends(db),
-    current: dict = Depends(get_current_user),
-    unread_only: bool = False,
-    limit: int = 50,
-):
-    filters = {"user_membership_id": current["membership_id"], "deleted_at": None}
-    if unread_only:
-        filters["is_read"] = False
-    items = []
-    async for n in database.notifications.find(filters).sort("created_at", -1).limit(min(limit, 200)):
-        n.pop("_id", None)
-        items.append(n)
-    unread = await database.notifications.count_documents(
-        {"user_membership_id": current["membership_id"], "is_read": False, "deleted_at": None}
-    )
-    return {"items": items, "unread": unread}
-
-
-@router.post("/notifications/me/read-all")
-async def mark_all_read(
-    database: AsyncIOMotorDatabase = Depends(db),
-    current: dict = Depends(get_current_user),
-):
-    res = await database.notifications.update_many(
-        {"user_membership_id": current["membership_id"], "is_read": False, "deleted_at": None},
-        {"$set": {"is_read": True, "updated_at": _iso()}},
-    )
-    return {"success": True, "updated": res.modified_count}
+# ============ User Notifications ========================================
+# User-facing endpoints live in /app/backend/app/routes/notifications.py
+# (Phase 2). Do NOT duplicate them here — router order in server.py would
+# cause silent shadowing.

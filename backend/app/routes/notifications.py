@@ -48,6 +48,7 @@ async def list_my_notifications(
         query["is_read"] = is_read
 
     total = await database.notifications.count_documents(query)
+    unread = await database.notifications.count_documents({**query, "is_read": False})
     cursor = (
         database.notifications.find(query)
         .sort("created_at", -1)
@@ -59,6 +60,7 @@ async def list_my_notifications(
         items.append(_clean(d))
     return {
         "items": items,
+        "unread": unread,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -82,6 +84,25 @@ async def unread_count(
         }
     )
     return {"unread": n}
+
+
+@router.post("/me/read-all")
+async def read_all(
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    result = await database.notifications.update_many(
+        {
+            "deleted_at": None,
+            "is_read": False,
+            "$or": [
+                {"user_membership_id": current["membership_id"]},
+                {"is_broadcast": True},
+            ],
+        },
+        {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"success": True, "updated": result.modified_count}
 
 
 @router.post("/me/mark-read")
