@@ -1,10 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/context/AuthContext";
 import { formatApiError } from "@/lib/api";
@@ -20,86 +16,86 @@ export default function Login() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!/^[6-9]\d{9}$/.test(mobile)) {
-      toast.error("Enter a valid 10-digit mobile.");
-      return;
-    }
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters.");
-      return;
-    }
+    if (!/^[6-9]\d{9}$/.test(mobile)) return toast.error("Enter a valid 10-digit mobile");
+    if (password.length < 8) return toast.error("Password must be at least 8 characters");
     setLoading(true);
     try {
-      const user = await loginUser(mobile, password);
-      toast.success(`Welcome back, ${user.full_name}`);
-      nav("/dashboard", { replace: true });
-    } catch (e) {
-      toast.error(formatApiError(e));
+      const u = await loginUser(mobile, password);
+      toast.success(`Welcome back, ${u.full_name.split(" ")[0]}`);
+      nav("/app/home", { replace: true });
+    } catch (err) {
+      toast.error(formatApiError(err));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen rw-hero-radial rw-grain">
-      <div className="rw-container flex flex-col py-8">
+    <div className="min-h-screen bg-white">
+      <div className="rw-phone rw-safe-top rw-safe-bottom min-h-screen px-6 py-6">
         <Logo size="sm" />
-        <div className="mx-auto mt-8 w-full max-w-md">
+        <div className="mt-10 rw-rise">
           <p className="rw-eyebrow">Welcome back</p>
-          <h1 className="mt-2 rw-serif text-4xl text-foreground">Return to your practice.</h1>
-
-          <Card className="mt-6 rw-card">
-            <form className="space-y-4" onSubmit={submit}>
-              <div>
-                <Label htmlFor={TID.loginMobile}>Mobile number</Label>
-                <Input
-                  id={TID.loginMobile}
-                  data-testid={TID.loginMobile}
-                  inputMode="numeric"
-                  maxLength={10}
-                  value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
-                  placeholder="10-digit mobile"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor={TID.loginPassword}>Password</Label>
-                  <Link
-                    to="/forgot-password"
-                    data-testid={TID.loginForgot}
-                    className="text-xs font-medium text-primary hover:underline"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
-                <Input
-                  id={TID.loginPassword}
-                  data-testid={TID.loginPassword}
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full rounded-full"
-                disabled={loading}
-                data-testid={TID.loginSubmit}
-              >
-                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Sign in <ArrowRight className="ml-1 h-4 w-4" />
-              </Button>
-            </form>
-          </Card>
-
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            New here?{" "}
-            <Link to="/register" className="font-medium text-primary hover:underline">
-              Create a membership
-            </Link>
+          <h1 className="mt-1 rw-serif text-4xl text-foreground">Sign in.</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Continue your practice.
           </p>
         </div>
+
+        <form className="mt-8 space-y-4" onSubmit={submit}>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Mobile
+            </label>
+            <input
+              className="rw-input mt-1"
+              data-testid={TID.loginMobile}
+              inputMode="numeric"
+              maxLength={10}
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+              placeholder="10-digit mobile"
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Password
+              </label>
+              <Link
+                to="/forgot-password"
+                className="text-xs font-semibold text-[hsl(var(--rw-royal))]"
+                data-testid={TID.loginForgot}
+              >
+                Forgot?
+              </Link>
+            </div>
+            <input
+              className="rw-input mt-1"
+              data-testid={TID.loginPassword}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="rw-btn-pill rw-btn-primary w-full"
+            disabled={loading}
+            data-testid={TID.loginSubmit}
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            Sign in
+          </button>
+        </form>
+
+        <p className="mt-8 text-center text-sm text-muted-foreground">
+          New here?{" "}
+          <Link to="/register" className="font-semibold text-[hsl(var(--rw-royal))]">
+            Create a membership
+          </Link>
+        </p>
       </div>
     </div>
   );

@@ -1,0 +1,48 @@
+{
+  "summary": "Phase 3 mobile-first PWA UI validated end-to-end (viewport 420x900) via Playwright, plus backend Phase 1+2 regression. Backend pytest: 80/80 pass (0.0 regressions). Frontend flows verified: Splash → Welcome → 4-step Register (mobile OTP=123456 → sponsor RW000000 → confirm → /app/home) → Home tiles (all 8 test-IDs render) → Bottom nav (5 tabs) → Programs list (6 cards) → Program Detail (modules render, locked toast fires) → Video player (watermark + 'Downloads disabled' footer) → PDF view (route loads) → Assessment (answers [1,1,1] pass → /app/certificate/inner-peace) → Certificate preview with user's name + membership id → Refer & Earn (referral link uses window.origin/join/RWxxxxxx, earnings grid, team button) → Team page (L1/L2/L3 tabs switch) → Bank Details PUT /api/bank-details/me returns success toast → Notifications (filters + mark all read) → Profile (name, mid) → Login with saved creds → /app/home → Forgot Password full flow → /login → Settings (Preferences/Privacy/About rendered). PWA basics: /manifest.json returns JSON with theme_color '#1E3A8A' and start_url '/'; /sw.js served with correct content-type; index.html meta theme-color is #1E3A8A. 0 console errors captured across all runs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Profile.jsx / ProtectedRoute.jsx",
+        "issue": "After clicking profile-logout-btn the app lands on /login instead of /welcome as specified. Root cause: Profile.jsx calls `await logout()` (which sets user=null) and then `nav('/welcome', { replace: true })`, but because the user is still on /app/profile at the instant user becomes null, <ProtectedUserRoute> re-renders first and its `<Navigate to='/login' replace />` overrides the pending nav('/welcome'). Spec: 'Logout … clears session and returns to /welcome.'",
+        "selector": "[data-testid='profile-logout-btn']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_phase2.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL/LOW: Fix logout redirect so it lands on /welcome as the spec states. Two possible fixes: (a) change ProtectedUserRoute to `<Navigate to='/welcome' replace />` on user=null, OR (b) navigate BEFORE clearing the auth state inside `logout()` in AuthContext.jsx. Non-blocking — /login is still a reasonable UX and shows 'New here? Create a membership' link back to /register."
+  ],
+  "critical_code_review_comments": [
+    "Assessment.jsx uses `[quiz-option-${i}]` test IDs that aren't in TID registry — consider adding to /app/frontend/src/constants/testIds.js for consistency (works fine either way in tests).",
+    "BankDetails.jsx auto-uppercases IFSC on submit only (`ifsc: form.ifsc.toUpperCase()`), not while typing. Matches spec's intent (backend receives uppercase), but the input field visually stays lowercase — minor UX polish (add `onChange` transform if desired).",
+    "ModulePlayer.jsx video path shows watermark twice (top-left + bottom-right) with white/45 opacity — good anti-piracy pattern. PDF branch uses rotated diagonal watermark at opacity 0.06 which is quite faint — verify still legible on a real screenshot capture.",
+    "ReferEarn.jsx: `navigator.clipboard.writeText(user?.membership_id)` — passing `undefined` when user is momentarily null would throw. Minor; guard with `if (user?.membership_id)`.",
+    "Profile.jsx has an <Item to='/app/support' …/> route which is not registered in App.js — clicking Support 404s to the fallback <Welcome />. Add a Support page or remove the row.",
+    "Certificate.jsx hard-codes 'Issued · 3 July 2026'. Should be dynamic when real cert data lands (Phase 4+).",
+    "No skeleton/loader for Home cards even though `rw-skeleton` class exists — initial paint is fine because data is static mock; add for real API phase.",
+    "PWA: sw.js is registered but no explicit registration confirmation in console (silent register). Fine for now."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (80/80 — 33 Phase 1 + 47 Phase 2, all green)",
+    "frontend": "≈98% (all 21 Phase 3 scenarios pass; single deviation is post-logout redirect target)"
+  },
+  "test_credentials": "Test users created dynamically during test with format: mobile=9XXXXXXXXX (random 10-digit starting with 9), password=Passw0rd!, referral=RW000000, dev OTP=123456. Admin 9999999999/Admin@12345 not exercised in this iteration.",
+  "seed_data_creation": "3 fresh RIYORA user memberships created during Playwright runs (registered via public API through UI, all under RW000000 sponsor). No prefix used since UI does not accept 'TEST_' in names, but names contain 'Test' / 'Login' keywords for identification. Bank details PUT'd for one user.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 3 UI is fully functional and integrated with the 3 real endpoints (auth/*, /membership/validate-referral, /bank-details/me). Only known deviation is the low-priority logout-redirect target (/login vs /welcome). All 22 test IDs listed in the review request are wired and clickable. When Phase 4 lands, swap /app/frontend/src/mock/data.js consumers to real API — most consumers are one-file imports so grep for `from \"@/mock/data\"`. Backend regression command: `pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml`.",
+  "rca of the issue": "Logout-lands-on-/login RCA: ProtectedUserRoute in /app/frontend/src/components/ProtectedRoute.jsx uses `<Navigate to='/login' replace />` when user is null. Profile.jsx's logout handler awaits AuthContext.logout() (which does setUser(null) internally) and then calls nav('/welcome', { replace: true }). Because React commits the state update from setUser(null) before the nav() effect resolves, the on-route <ProtectedUserRoute> guard re-renders first and its <Navigate to='/login'> wins the race. Repro: register/login → click nav-profile → click profile-logout-btn → observe URL becomes /login. Mitigation options: (a) change ProtectedRoute redirect target to /welcome (aligns with spec), OR (b) navigate before clearing state: in AuthContext.logout(), issue a hard `window.location.assign('/welcome')` OR pass a router instance to nav('/welcome') before setUser(null)."
+}
