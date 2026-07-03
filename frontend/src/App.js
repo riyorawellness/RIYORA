@@ -36,6 +36,8 @@ import AdminSystem from "@/pages/AdminSystem";
 import AdminNotifications from "@/pages/AdminNotifications";
 import AdminBanners from "@/pages/AdminBanners";
 import AdminAuditLog from "@/pages/AdminAuditLog";
+import AdminAnalytics from "@/pages/AdminAnalytics";
+import AdminReports from "@/pages/AdminReports";
 import AdminShell from "@/components/AdminShell";
 
 function App() {
@@ -93,6 +95,8 @@ function App() {
           >
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/analytics" element={<AdminAnalytics />} />
+            <Route path="/admin/reports" element={<AdminReports />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/admin/referrals" element={<AdminReferrals />} />

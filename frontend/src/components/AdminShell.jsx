@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, NavLink, Outlet } from "react-router-dom";
-import { LogOut, LayoutDashboard, Users, Wallet, CreditCard, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers } from "lucide-react";
+import { LogOut, LayoutDashboard, BarChart3, FileBarChart, Users, Wallet, CreditCard, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { useAuth } from "@/context/AuthContext";
 
 const NAV = [
   { to: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "admin-nav-dashboard" },
+  { to: "/admin/analytics", label: "Analytics", icon: BarChart3, testid: "admin-nav-analytics" },
+  { to: "/admin/reports", label: "Reports", icon: FileBarChart, testid: "admin-nav-reports" },
   { to: "/admin/users", label: "Users", icon: Users, testid: "admin-nav-users" },
   { to: "/admin/payments", label: "Payments", icon: CreditCard, testid: "admin-nav-payments" },
   { to: "/admin/referrals", label: "Referrals", icon: Wallet, testid: "admin-nav-referrals" },

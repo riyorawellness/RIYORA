@@ -64,6 +64,8 @@ async def create_indexes() -> None:
     await db.program_purchases.create_index([("user_membership_id", 1), ("program_id", 1)])
     await db.program_purchases.create_index("invoice_number", unique=True)
     await db.program_purchases.create_index("expiry_date")
+    await db.program_purchases.create_index("purchase_date")
+    await db.program_purchases.create_index("program_id")
     await db.program_progress.create_index(
         [("user_membership_id", 1), ("program_id", 1)], unique=True
     )
