@@ -30,6 +30,13 @@ import AdminLogin from "@/pages/AdminLogin";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminPayments from "@/pages/AdminPayments";
 import AdminReferrals from "@/pages/AdminReferrals";
+import AdminUsers from "@/pages/AdminUsers";
+import AdminCMS from "@/pages/AdminCMS";
+import AdminSystem from "@/pages/AdminSystem";
+import AdminNotifications from "@/pages/AdminNotifications";
+import AdminBanners from "@/pages/AdminBanners";
+import AdminAuditLog from "@/pages/AdminAuditLog";
+import AdminShell from "@/components/AdminShell";
 
 function App() {
   return (
@@ -78,21 +85,23 @@ function App() {
           {/* Admin */}
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route
-            path="/admin/dashboard"
             element={
               <ProtectedAdminRoute>
-                <AdminDashboard />
+                <AdminShell />
               </ProtectedAdminRoute>
             }
-          />
-          <Route
-            path="/admin/payments"
-            element={
-              <ProtectedAdminRoute>
-                <AdminPayments />
-              </ProtectedAdminRoute>
-            }
-          />
+          >
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/admin/payments" element={<AdminPayments />} />
+            <Route path="/admin/referrals" element={<AdminReferrals />} />
+            <Route path="/admin/notifications" element={<AdminNotifications />} />
+            <Route path="/admin/banners" element={<AdminBanners />} />
+            <Route path="/admin/cms" element={<AdminCMS />} />
+            <Route path="/admin/system" element={<AdminSystem />} />
+            <Route path="/admin/audit" element={<AdminAuditLog />} />
+          </Route>
 
           <Route path="*" element={<Welcome />} />
         </Routes>

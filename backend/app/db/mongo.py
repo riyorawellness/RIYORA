@@ -105,6 +105,14 @@ async def create_indexes() -> None:
     await db.payouts.create_index([("user_membership_id", 1), ("status", 1)])
     await db.payouts.create_index("created_at")
 
+    # ----- Phase 7 (Admin & CMS) -----
+    await db.cms_pages.create_index("slug", unique=True)
+    await db.cms_page_versions.create_index("page_slug")
+    await db.banners.create_index([("placement", 1), ("is_active", 1)])
+    await db.uploads.create_index("id", unique=True)
+    await db.notification_templates.create_index("created_at")
+    await db.notifications.create_index([("user_membership_id", 1), ("is_read", 1), ("created_at", -1)])
+
 
 async def seed_company_account() -> None:
     """Create the reserved RW000000 company membership if missing.

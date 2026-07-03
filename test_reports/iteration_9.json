@@ -1,0 +1,58 @@
+{
+  "summary": "Phase 7 (Admin Panel & CMS) backend testing — 42/44 pytest cases pass (95.5%). One critical infra bug fixed by test agent (log_action wrote to wrong collection + rejected `meta=` kwarg → every admin mutation was 500ing). Two remaining bugs are real backend defects requiring main-agent fix: system settings `company_name` default not returned, and Phase 7 `/notifications/me` endpoint shadowed by Phase 2 route (route-collision → missing `unread` field).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/notifications/me",
+        "issue": "Route collision — /app/backend/app/routes/notifications.py (Phase 2, registered first) shadows the Phase 7 handler in admin_phase7.py. Result: response is a `PaginatedResponse` (items,total,page,...) with NO `unread` field, breaking the spec {items, unread}. Also breaks the intended {items, unread} shape used by the admin dashboard/UI notifications drawer.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "GET /api/admin/system/settings",
+        "issue": "Response returns `company_name: None` on a fresh DB. Root cause: `out[k] = await _get(database, k)` inserts every key with value `None`, so subsequent `out.setdefault('company_name', 'RIYORA Wellness')` is a no-op (key already exists). Same defect can affect `application_version`, `maintenance_mode`. Fix: use `out[k] = out[k] if out[k] is not None else default` or `if not out.get(k): out[k] = default`.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "utils/audit.log_action",
+        "issue": "FIXED by test agent — util used to write to `db.audit_logs` with `metadata=` kwarg, but every Phase 7 caller writes `meta=updates` and the audit-log viewer queries `db.activity_log`. Two failure modes: (a) TypeError('unexpected keyword argument meta') → 500 on every users/patch, users/status, users/reset-password, banner CRUD, notification send, uploads, CMS upsert; (b) even if kwarg worked, admin events would never appear in /admin/audit-log because they landed in the wrong collection. FIX applied: util now writes to `activity_log` with schema {actor_membership_id, action, entity, entity_id, meta, created_at, id} and accepts both `meta` and `metadata` kwargs."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase7.py",
+    "/app/test_reports/pytest/phase7_results.xml"
+  ],
+  "action_items": [
+    "Fix system-settings default fallback: replace `out.setdefault(k, default)` pattern with `if out.get(k) is None: out[k] = default` in admin_phase7.py:get_system_settings and get_security_settings.",
+    "Resolve /notifications/me route collision: either (a) remove the Phase 7 duplicate and add `unread` field to the Phase 2 handler in routes/notifications.py, or (b) move Phase 7 handler to a distinct path (e.g. /notifications/me/inbox) and update the frontend, or (c) include admin_phase7 router BEFORE notifications router in server.py:157/170. Option (a) is cleanest — one canonical /notifications/me returning {items, unread}.",
+    "Consider removing the now-unused /app/backend/app/db/mongo.py audit_logs indexes since log_action now targets activity_log."
+  ],
+  "critical_code_review_comments": [
+    "server.py:157/170 — route ordering matters. Phase 7 route file (admin_phase7.py) is registered after notifications.py, so its /notifications/me and /notifications/me/read-all endpoints are dead-code shadowed by Phase 2. Same could bite future phases; consider consolidating user-notification routes into ONE router.",
+    "admin_phase7.py:83-88 — `out.setdefault(k, default)` after `out[k] = await _get(...)` is buggy: setdefault only inserts when key is MISSING, but the loop already inserted `k: None`. All 'default' fallbacks are silently dead.",
+    "admin_phase7.py:100 — `put_system_settings` calls `get_system_settings(database, admin)` directly (bypassing FastAPI DI). Works, but the second positional arg is treated as `_admin` which is fine, just fragile.",
+    "admin_users.py:210-245 — session revocation only revokes user tokens on suspend/deactivate. Reset-password also revokes — good. But test showed login-after-suspend correctly returns non-2xx: the guard sits in the login endpoint (checks is_active), which is defense-in-depth, since JWT access tokens are still valid until natural expiry — acceptable for now.",
+    "cms.py:100-143 — first PUT creates without a version snapshot, second PUT snapshots the previous body. Correct per spec. Version rows do NOT have deleted_at handling — if a page is ever deleted, versions linger. Consider soft-cascade.",
+    "uploads: MAX_UPLOAD_MB=200 is enforced in-memory after `await file.read()` — a 200MB payload can OOM on a small pod. Consider streaming with a chunked size check.",
+    "banners /banners/active: schedule filter compares ISO strings with $lte/$gte, which works lexicographically only for a fixed timezone; since everything writes UTC ISO with 'Z' or '+00:00', it's correct. Add index on (deleted_at, is_active, priority, schedule_start, schedule_end) for scale.",
+    "audit-log filters accept regex-uncompiled q — could hit ReDoS on hostile input. Consider escape+contains matching instead of raw $regex."
+  ],
+  "updated_files": [
+    "/app/backend/app/utils/audit.py",
+    "/app/backend/tests/test_phase7.py"
+  ],
+  "success_rate": {"backend": "95.5% (42/44)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Admin 9999999999 / Admin@12345 (validated). Test users created dynamically with referral RW000000 + dev OTP 123456; passwords Passw0rd! and reset targets 'NewPass123!'.",
+  "seed_data_creation": "During test run: ~15 TEST_* users, several TEST_ banners, CMS pages 'about', 'audit-*', 'custom-*', notification templates TEST_BCAST_* and TEST_TARGET, uploaded PNG files (1 delete-tested, 2 retained). All rows tagged with TEST_ prefix or unique UUID slugs — safe to cleanup via `db.users.deleteMany({full_name: /^TEST_/})` and similar on other collections.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the 2 bugs above, re-run: `pytest /app/backend/tests/test_phase7.py -v`. Both failing tests (TestSettings::test_system_defaults_and_roundtrip and TestNotifications::test_targeted_notification_only_selected) should then pass. Also confirm regression by running test_phase5.py + test_phase6.py — audit.log_action now writes to activity_log so any prior test that asserted on the audit_logs collection will need updating (none found in the current phase 5/6 test files).",
+  "rca_of_the_issue": {
+    "log_action_infra_bug": "log_action() in utils/audit.py was defined with kwarg `metadata` but all Phase 7 callers passed `meta`. Python raised TypeError('unexpected keyword argument meta'), FastAPI converted to 500. Additionally, log_action wrote to db.audit_logs but the audit-log viewer + payment/activity modules use db.activity_log — so admin actions would never appear in the viewer even if the kwarg matched. Fix: align util with the existing write_activity() in routes/activity_log.py — same collection, same schema, accept both `meta` and `metadata`. Verified fix by re-issuing PATCH /admin/users/{id}/status → 200 OK; also confirmed audit-log now surfaces cms.page.upsert / users.export / etc. rows.",
+    "system_settings_default_bug": "In get_system_settings, the loop unconditionally sets `out[k] = await _get(database, k)`, which populates the dict with None values for unset keys. The subsequent `out.setdefault('company_name', 'RIYORA Wellness')` is a no-op because the key EXISTS (just with value None). Correct pattern: `if out.get(k) is None: out[k] = default_value`.",
+    "notifications_route_collision": "Both /app/backend/app/routes/notifications.py (Phase 2) and /app/backend/app/routes/admin_phase7.py (Phase 7) register GET /notifications/me. FastAPI uses first-match wins. Since notifications_routes is included at server.py:157 and admin_phase7 at :170, Phase 2 wins and returns {items,total,page,page_size,total_pages}, missing the {items,unread} shape mandated by Phase 7 spec + frontend."
+  }
+}

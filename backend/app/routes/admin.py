@@ -101,7 +101,7 @@ async def admin_profile(current: dict = Depends(get_current_admin)):
 
 @router.get("/stats", response_model=dict)
 async def admin_stats(current: dict = Depends(get_current_admin), database: AsyncIOMotorDatabase = Depends(db)):
-    """Basic counts for the admin dashboard (foundation phase)."""
+    """Legacy quick stats endpoint. Prefer /admin/dashboard/overview (Phase 7)."""
     total_users = await database.users.count_documents({"deleted_at": None})
     active_users = await database.users.count_documents({"deleted_at": None, "is_active": True})
     total_memberships = await database.memberships.count_documents({"deleted_at": None, "is_company": False})
@@ -112,29 +112,3 @@ async def admin_stats(current: dict = Depends(get_current_admin), database: Asyn
         "total_memberships": total_memberships,
         "total_otps_sent": total_otps,
     }
-
-
-@router.get("/users", response_model=list)
-async def admin_list_users(
-    current: dict = Depends(get_current_admin),
-    database: AsyncIOMotorDatabase = Depends(db),
-    limit: int = 50,
-    skip: int = 0,
-):
-    cursor = database.users.find({"deleted_at": None}).sort("created_at", -1).skip(skip).limit(min(limit, 200))
-    out = []
-    async for u in cursor:
-        out.append(
-            {
-                "membership_id": u["membership_id"],
-                "full_name": u["full_name"],
-                "mobile": u["mobile"],
-                "state": u["state"],
-                "city": u["city"],
-                "sponsor_membership_id": u["sponsor_membership_id"],
-                "sponsor_name": u.get("sponsor_name"),
-                "is_active": u.get("is_active", True),
-                "created_at": u["created_at"],
-            }
-        )
-    return out

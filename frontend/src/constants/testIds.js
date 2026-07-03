@@ -107,4 +107,10 @@ export const TID = {
   settingsLanguage: "settings-language",
   settingsTheme: "settings-theme",
   settingsSupport: "settings-support",
+
+  // Admin auth
+  adminLoginMobile: "admin-login-mobile-input",
+  adminLoginPassword: "admin-login-password-input",
+  adminLoginSubmit: "admin-login-submit-btn",
+  adminLogout: "admin-logout-btn",
 };

@@ -56,6 +56,10 @@ from app.routes import activity as activity_routes  # noqa: E402
 from app.routes import commissions as commissions_routes  # noqa: E402
 from app.routes import payouts as payouts_routes  # noqa: E402
 from app.routes import reports as reports_routes  # noqa: E402
+from app.routes import admin_dashboard as admin_dashboard_routes  # noqa: E402
+from app.routes import admin_users as admin_users_routes  # noqa: E402
+from app.routes import cms as cms_routes  # noqa: E402
+from app.routes import admin_phase7 as admin_phase7_routes  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -159,5 +163,10 @@ api_router.include_router(activity_routes.router)
 api_router.include_router(commissions_routes.router)
 api_router.include_router(payouts_routes.router)
 api_router.include_router(reports_routes.router)
+api_router.include_router(admin_dashboard_routes.router)
+api_router.include_router(admin_users_routes.router)
+api_router.include_router(cms_routes.router)
+api_router.include_router(cms_routes.admin_router)
+api_router.include_router(admin_phase7_routes.router)
 
 app.include_router(api_router)
