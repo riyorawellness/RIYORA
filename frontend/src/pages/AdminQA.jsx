@@ -124,7 +124,7 @@ export default function AdminQA() {
             const passed = rules.filter((r) => r.status === "Pass").length;
             const total = rules.length;
             return (
-              <Card key={cat} className="rw-card p-4" data-testid={`qa-cat-${cat.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}>
+              <Card key={cat} className="rw-card p-4" data-testid={`qa-cat-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`}>
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="rw-serif text-xl">{cat}</h3>
                   <Badge variant={passed === total ? "default" : "destructive"}>

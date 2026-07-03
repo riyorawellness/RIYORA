@@ -138,3 +138,24 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - Tests: `/app/backend/tests/test_phase8.py` — 31/31 pass covering all endpoints, filters, exports, auth guards.
 - Deps: `openpyxl 3.1.5` added; `recharts` (already present) drives all charts.
 - DB: added indexes for `program_purchases.purchase_date`, `program_purchases.program_id`.
+
+## Delivered on 2026-07-03 (Phase 9 — Testing, Security Hardening & Production Prep)
+- **Business Rule Validation (BRV) Engine** — `services/brv.py` runs 36 live assertions across 10 categories (Registration, Program, Module, Payment, Refer & Earn, Payout, Data, Security, Admin, PWA/Ops). Returns JSON matrix + Pass/Fail verdict. `POST /api/admin/qa/brv[/pdf]` — the PDF is a printable Test Name / Expected / Actual / Status / Remarks report. Frontend `/admin/qa` page with live runner, verdict card, per-category detail, one-click PDF download.
+- **Security hardening**:
+  - `core/security_mw.py` — SecurityHeadersMiddleware (CSP, HSTS, X-Frame, X-Content-Type, Referrer, Permissions), slowapi limiter (120 req/min per IP), and brute-force lockout (5 fails → 15-min lock, tracked in `login_attempts` collection).
+  - `/api/auth/login` and `/api/admin/login` now enforce the lockout.
+  - `utils/sanitize.py` — regex-escaped, `$`-stripped free-text search.
+  - `utils/file_validator.py` — extension whitelist + size caps + magic-byte checks for uploads.
+- **Observability**:
+  - `core/logging_mw.py` — RequestIdMiddleware issues per-request `X-Request-ID`, structured JSON access log.
+  - `routes/health.py` — `/api/health/{live,ready}` (public) + `/deep` (admin) with Mongo ping, collection counts, uptime, errors_24h.
+- **Ops**:
+  - `scripts/backup_mongo.sh` — daily gzipped mongodump with retention & weekly snapshots.
+  - `scripts/restore_mongo.sh` — companion restore.
+- **Frontend polish**:
+  - `components/ErrorBoundary.jsx` wraps the entire app tree; friendly retry / home fallback.
+  - `public/robots.txt`, `public/sitemap.xml`, richer Open Graph + Twitter meta tags in `index.html`.
+- **Docs** (`/app/docs/`): DEPLOYMENT, SECURITY, ADMIN_MANUAL, BACKUP_RESTORE, DEVELOPER, API.
+- **Tests**: `/app/backend/tests/test_phase9.py` — 19/19 pass covering BRV, lockout, headers, health, SEO, regressions.
+- **Deps added**: `slowapi 0.1.10`, `openpyxl 3.1.5` (from P8).
+- **BRV verdict at go-live**: **PASS · 36/36 rules · overall verdict PASS**.
