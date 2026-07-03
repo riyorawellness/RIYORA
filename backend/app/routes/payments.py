@@ -430,6 +430,18 @@ async def create_subscription(
     if not program:
         raise HTTPException(404, "Subscription program not found")
 
+    # Dedupe: block if user already has an active subscription for this program.
+    existing = await database.subscriptions.find_one(
+        {
+            "user_membership_id": current["membership_id"],
+            "program_id": program["id"],
+            "status": "active",
+            "deleted_at": None,
+        }
+    )
+    if existing:
+        raise HTTPException(409, "You already have an active subscription for this program.")
+
     sub = create_subscription_mock(program["id"], body.plan)
     now = datetime.now(timezone.utc)
     validity = int(program.get("validity_days") or 30)
@@ -579,8 +591,10 @@ async def admin_payment_summary(
     buckets = {"active": {"count": 0, "revenue": 0}, "expired": {"count": 0, "revenue": 0},
                "cancelled": {"count": 0, "revenue": 0}, "refunded": {"count": 0, "revenue": 0}}
     async for row in database.program_purchases.aggregate(pipeline):
-        buckets[row["_id"]] = {"count": row["count"], "revenue": round(row["revenue"] or 0, 2)}
-    total_revenue = round(sum(v["revenue"] for k, v in buckets.items() if k != "refunded") - buckets["refunded"]["revenue"], 2)
+        buckets.setdefault(row["_id"] or "unknown", {"count": 0, "revenue": 0})
+        buckets[row["_id"] or "unknown"] = {"count": row["count"], "revenue": round(row["revenue"] or 0, 2)}
+    gross = round(sum(v["revenue"] for k, v in buckets.items() if k != "refunded"), 2)
+    total_revenue = round(gross - buckets["refunded"]["revenue"], 2)
     total_txn = sum(v["count"] for v in buckets.values())
     return {
         "total_revenue": total_revenue,
@@ -601,6 +615,8 @@ async def admin_refund(
         raise HTTPException(404, "Transaction not found")
     if purchase.get("status") == "refunded":
         raise HTTPException(409, "Already refunded")
+    if purchase.get("status") not in ("active", "expired"):
+        raise HTTPException(409, f"Cannot refund a {purchase.get('status')} transaction")
 
     # Mock refund — real Razorpay refund would call client.payment.refund(pid, {amount})
     await database.program_purchases.update_one(
@@ -628,19 +644,23 @@ async def admin_refund(
     return {"success": True, "is_mock": True}
 
 
-@router.get("/admin/settings")
-async def admin_get_payment_settings(
-    database: AsyncIOMotorDatabase = Depends(db),
-    _admin: dict = Depends(get_current_admin),
-):
+async def _read_payment_settings(database: AsyncIOMotorDatabase) -> dict:
     keys = ["default_gst_percent", "default_validity_days", "company_gst_number", "invoice_prefix"]
-    out = {}
+    out: dict[str, Any] = {}
     for k in keys:
         out[k] = await _get_setting(database, k, None)
     out.setdefault("default_gst_percent", settings.DEFAULT_GST_PERCENT)
     out.setdefault("default_validity_days", settings.DEFAULT_VALIDITY_DAYS)
     out.setdefault("invoice_prefix", "INV")
     return out
+
+
+@router.get("/admin/settings")
+async def admin_get_payment_settings(
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    return await _read_payment_settings(database)
 
 
 @router.put("/admin/settings")
@@ -660,4 +680,4 @@ async def admin_update_payment_settings(
             },
             upsert=True,
         )
-    return await admin_get_payment_settings(database, {})  # type: ignore[arg-type]
+    return await _read_payment_settings(database)
