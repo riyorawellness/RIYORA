@@ -3,6 +3,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import ProgramCard from "@/components/ProgramCard";
+import ActiveBanners from "@/components/ActiveBanners";
 import { programsApi } from "@/services/programs";
 import { TID } from "@/constants/testIds";
 import { formatApiError } from "@/lib/api";
@@ -52,6 +53,8 @@ export default function Programs() {
         Complete each level to unlock the next. Inner Peace stays alive with an
         activity meter.
       </p>
+
+      <ActiveBanners placement="programs" className="mt-5" />
 
       {!anyProgram && (
         <div className="mt-8 grid place-items-center rounded-2xl bg-neutral-50 py-14">

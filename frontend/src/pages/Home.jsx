@@ -7,6 +7,7 @@ import Logo from "@/components/Logo";
 import { TID } from "@/constants/testIds";
 import { activityApi } from "@/services/referrals";
 import { manualPaymentsApi } from "@/services/manualPayments";
+import ActiveBanners from "@/components/ActiveBanners";
 import { formatApiError } from "@/lib/api";
 import {
   ANNOUNCEMENT,
@@ -106,6 +107,9 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Home banners */}
+      <ActiveBanners placement="home" className="mt-4" />
 
       {/* Pending payment verification card (Phase 11) */}
       {pending.length > 0 && (

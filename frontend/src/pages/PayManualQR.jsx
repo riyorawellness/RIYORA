@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { manualPaymentsApi, resolveUploadUrl } from "@/services/manualPayments";
+import ActiveBanners from "@/components/ActiveBanners";
 import { formatApiError } from "@/lib/api";
 
 export default function PayManualQR() {
@@ -136,6 +137,8 @@ export default function PayManualQR() {
       </div>
 
       <div className="rw-phone space-y-4 px-4 pt-4">
+        {/* Checkout banner (Phase 11) */}
+        <ActiveBanners placement="checkout" />
         {/* Price breakdown */}
         <Card className="p-4" data-testid="pay-breakdown-card">
           <p className="rw-eyebrow">Amount to pay</p>

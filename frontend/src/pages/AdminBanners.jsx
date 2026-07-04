@@ -191,7 +191,7 @@ export default function AdminBanners() {
                   onChange={(e) => setDraft({ ...draft, placement: e.target.value })}
                   data-testid="banner-placement"
                 >
-                  {["home", "programs", "offer", "festival", "announcement"].map((p) => (
+                  {["home", "programs", "checkout", "offer", "festival", "announcement"].map((p) => (
                     <option key={p}>{p}</option>
                   ))}
                 </select>
