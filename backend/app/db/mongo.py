@@ -188,6 +188,7 @@ _DEFAULT_APP_SETTINGS = [
     {"key": "app_version", "value": "1.0.0", "description": "Current app version"},
     {"key": "application_version", "value": "1.0.0", "description": "Application version shown to users"},
     {"key": "company_name", "value": "RIYORA Wellness", "description": "Company display name"},
+    {"key": "payment_mode", "value": "manual_qr", "description": "Active payment provider: manual_qr | razorpay | both"},
 ]
 
 

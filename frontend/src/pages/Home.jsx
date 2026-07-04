@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Bell, Calendar, Droplet, Play, Sparkles, PlusCircle } from "lucide-react";
+import { Bell, Calendar, Clock, Droplet, HelpCircle, Play, Sparkles, PlusCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import Logo from "@/components/Logo";
 import { TID } from "@/constants/testIds";
 import { activityApi } from "@/services/referrals";
+import { manualPaymentsApi } from "@/services/manualPayments";
 import { formatApiError } from "@/lib/api";
 import {
   ANNOUNCEMENT,
@@ -33,6 +34,7 @@ export default function Home() {
   const first = user?.full_name?.split(" ")[0] ?? "Seeker";
   const [meter, setMeter] = useState(null);
   const [logging, setLogging] = useState(false);
+  const [pending, setPending] = useState([]);
   const innerPeace = PROGRAMS.find((p) => p.id === "inner-peace");
   const featured = PROGRAMS.find((p) => p.id === "level-1");
 
@@ -45,8 +47,18 @@ export default function Home() {
     }
   };
 
+  const loadPending = async () => {
+    try {
+      const r = await manualPaymentsApi.myPending();
+      setPending(r.items || []);
+    } catch (e) {
+      // silent
+    }
+  };
+
   useEffect(() => {
     loadMeter();
+    loadPending();
   }, []);
 
   const logSession = async () => {
@@ -94,6 +106,58 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Pending payment verification card (Phase 11) */}
+      {pending.length > 0 && (
+        <section className="mt-4 space-y-3" data-testid="home-pending-payments">
+          {pending.map((r) => (
+            <div key={r.id} className="rw-card overflow-hidden border-2 border-amber-400 bg-amber-50 p-0" data-testid={`home-pending-${r.program_id}`}>
+              <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-widest text-amber-800">
+                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                Payment Verification Pending
+              </div>
+              <div className="p-4">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-11 w-11 place-items-center rounded-full bg-amber-500 text-white">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="rw-serif truncate text-lg">{r.program_name}</h3>
+                    <div className="mt-0.5 text-[11px] text-neutral-700">
+                      {r.program_level != null && <>Level {r.program_level} · </>}
+                      Amount ₹{Number(r.total).toLocaleString("en-IN")}
+                    </div>
+                    <div className="mt-1 text-[11px] text-neutral-600">
+                      Submitted {new Date(r.submitted_at).toLocaleDateString()}
+                      &nbsp;·&nbsp; UTR <span className="font-mono">{r.utr}</span>
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-neutral-700">
+                  Your payment has been received and is awaiting verification by the RIYORA Wellness team.
+                  Program access will be activated immediately after successful verification.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Link
+                    to="/app/payment-history"
+                    className="flex-1 rounded-lg border border-amber-500 bg-white py-2 text-center text-xs font-semibold text-amber-800"
+                    data-testid={`home-pending-view-${r.program_id}`}
+                  >
+                    View payment details
+                  </Link>
+                  <Link
+                    to="/legal/contact"
+                    className="flex-1 rounded-lg bg-amber-500 py-2 text-center text-xs font-semibold text-white"
+                    data-testid={`home-pending-support-${r.program_id}`}
+                  >
+                    <HelpCircle className="mr-1 inline h-3 w-3" /> Contact support
+                  </Link>
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* activity meter */}
       <section className="mt-5 rw-card p-5" data-testid={TID.homeActivityMeter}>

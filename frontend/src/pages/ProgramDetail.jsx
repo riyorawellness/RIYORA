@@ -17,6 +17,7 @@ import {
 import CheckoutModal from "@/components/CheckoutModal";
 import { programsApi } from "@/services/programs";
 import { paymentsApi } from "@/services/payments";
+import { manualPaymentsApi } from "@/services/manualPayments";
 import { TID } from "@/constants/testIds";
 import { formatApiError } from "@/lib/api";
 
@@ -35,16 +36,26 @@ export default function ProgramDetail() {
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [paymentMode, setPaymentMode] = useState("razorpay");
+  const [pendingReq, setPendingReq] = useState(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [st, mods] = await Promise.all([
+      const [st, mods, mode] = await Promise.all([
         programsApi.status(id),
         programsApi.modulesByProgram(id).catch(() => ({ modules: [] })),
+        manualPaymentsApi.getMode().catch(() => ({ payment_mode: "razorpay" })),
       ]);
       setStatus(st);
       setModules(mods?.modules || mods?.items || []);
+      setPaymentMode(mode?.payment_mode || "razorpay");
+      // fetch pending request for this program (if any)
+      try {
+        const pending = await manualPaymentsApi.myPending();
+        const match = (pending?.items || []).find((r) => r.program_id === id);
+        setPendingReq(match || null);
+      } catch { /* non-blocking */ }
     } catch (e) {
       toast.error(formatApiError(e, "Could not load program"));
     } finally {
@@ -267,30 +278,36 @@ export default function ProgramDetail() {
             <span className="rw-chip rw-chip-sky">
               <CheckCircle2 className="h-3 w-3" /> Active
             </span>
+          ) : pendingReq ? (
+            <button
+              className="rw-btn-pill bg-amber-500 text-white opacity-90 cursor-not-allowed"
+              disabled
+              data-testid="program-pending-verification-btn"
+            >
+              <Loader2 className="h-3 w-3 animate-spin" /> Pending Verification
+            </button>
           ) : program.is_subscription ? (
-            <div className="flex flex-col gap-2">
-              <button
-                className="rw-btn-pill rw-btn-primary"
-                onClick={() => handleSubscribe("monthly")}
-                data-testid="subscribe-monthly-btn"
-              >
-                Monthly
-              </button>
-              <button
-                className="rw-btn-pill bg-[hsl(var(--rw-gold-soft))] text-[hsl(35_60%_28%)]"
-                onClick={() => handleSubscribe("yearly")}
-                data-testid="subscribe-yearly-btn"
-              >
-                Yearly
-              </button>
+            <div className="flex flex-col items-end gap-1">
+              <span className="rw-chip bg-neutral-100 text-neutral-700" data-testid="program-coming-soon-badge">
+                <Sparkles className="h-3 w-3" /> Coming Soon
+              </span>
+              <p className="max-w-[240px] text-right text-[10px] text-muted-foreground">
+                Inner Peace launches with secure Razorpay AutoPay subscription.
+              </p>
             </div>
           ) : (
             <button
               className="rw-btn-pill rw-btn-primary"
-              onClick={() => setCheckoutOpen(true)}
+              onClick={() => {
+                if (paymentMode === "manual_qr") {
+                  nav(`/app/pay/${id}`);
+                } else {
+                  setCheckoutOpen(true);
+                }
+              }}
               data-testid={TID.programPurchaseBtn}
             >
-              Purchase
+              {paymentMode === "manual_qr" ? "Pay via QR" : "Purchase"}
             </button>
           )}
         </div>

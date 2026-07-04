@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, NavLink, Outlet } from "react-router-dom";
-import { LogOut, LayoutDashboard, BarChart3, FileBarChart, ShieldCheck, Users, Wallet, CreditCard, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers } from "lucide-react";
+import { LogOut, LayoutDashboard, BarChart3, FileBarChart, ShieldCheck, Users, Wallet, CreditCard, QrCode, ClipboardCheck, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,8 @@ const NAV = [
   { to: "/admin/reports", label: "Reports", icon: FileBarChart, testid: "admin-nav-reports" },
   { to: "/admin/users", label: "Users", icon: Users, testid: "admin-nav-users" },
   { to: "/admin/payments", label: "Payments", icon: CreditCard, testid: "admin-nav-payments" },
+  { to: "/admin/payment-verifications", label: "Verify Payments", icon: ClipboardCheck, testid: "admin-nav-payment-verify" },
+  { to: "/admin/payment-settings", label: "QR & Settings", icon: QrCode, testid: "admin-nav-payment-settings" },
   { to: "/admin/referrals", label: "Referrals", icon: Wallet, testid: "admin-nav-referrals" },
   { to: "/admin/notifications", label: "Notifications", icon: Bell, testid: "admin-nav-notifs" },
   { to: "/admin/banners", label: "Banners", icon: ImageIcon, testid: "admin-nav-banners" },

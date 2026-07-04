@@ -77,6 +77,7 @@ export default function Profile() {
       </Section>
 
       <Section title="Account">
+        <Item to="/app/payment-history" icon={Receipt} title="Payment history" hint="Your QR payment submissions" testid="profile-nav-payment-history" />
         <Item to="/app/bank" icon={Landmark} title="Bank details" hint="Payout account" />
         <Item to="/app/settings" icon={SettingsIcon} title="Settings" hint="Theme, language, privacy" />
       </Section>

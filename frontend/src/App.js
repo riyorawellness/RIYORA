@@ -23,6 +23,10 @@ import Notifications from "@/pages/Notifications";
 import Settings from "@/pages/Settings";
 import Offline from "@/pages/Offline";
 import LegalPage from "@/pages/LegalPage";
+import PayManualQR from "@/pages/PayManualQR";
+import PaymentHistory from "@/pages/PaymentHistory";
+import AdminPaymentSettings from "@/pages/AdminPaymentSettings";
+import AdminPendingPayments from "@/pages/AdminPendingPayments";
 import Purchases from "@/pages/Purchases";
 import Commissions from "@/pages/Commissions";
 import Payouts from "@/pages/Payouts";
@@ -87,6 +91,8 @@ function App() {
             <Route path="payouts" element={<Payouts />} />
             <Route path="reports" element={<Reports />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="pay/:programId" element={<PayManualQR />} />
+            <Route path="payment-history" element={<PaymentHistory />} />
           </Route>
 
           {/* Admin */}
@@ -111,6 +117,8 @@ function App() {
             <Route path="/admin/system" element={<AdminSystem />} />
             <Route path="/admin/audit" element={<AdminAuditLog />} />
             <Route path="/admin/qa" element={<AdminQA />} />
+            <Route path="/admin/payment-settings" element={<AdminPaymentSettings />} />
+            <Route path="/admin/payment-verifications" element={<AdminPendingPayments />} />
           </Route>
 
           <Route path="*" element={<Welcome />} />
