@@ -187,3 +187,17 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
   - `pages/Home.jsx` — prominent amber "Payment Verification Pending" card per pending request with "View details" + "Contact support" CTAs.
   - `services/manualPayments.js` — API client + `resolveUploadUrl` helper.
 - **Tests**: `/app/backend/tests/test_phase11.py` — 17/17 pytest cases pass covering mode toggle, settings round-trip, QR upload/delete/serve, quote, submit + duplicate 409, admin summary + list, approve creates purchase + fires commissions + notifies user, reject stores reason + allows resubmit, subscription programs blocked. Frontend Playwright E2E green on every acceptance criterion. BRV still 36/36 PASS.
+
+
+## Delivered on 2026-02 (P0 Bug — Broadcast Notification Duplication)
+- **Root cause**: `GET /api/notifications/me` used `$or: [{user_membership_id: current}, {is_broadcast: True}]`. Since `POST /api/admin/notifications` materialises 1 row per active user (each row carrying `is_broadcast: True`), the `$or` matched every user's copy, returning N rows per broadcast (N = active users) — hence 99+ duplicates.
+- **Fix** (`/app/backend/app/routes/notifications.py`):
+  - `list_my_notifications` and `unread_count` now strictly filter by `user_membership_id`.
+  - `read_all` and `mark_read` no longer exclude `is_broadcast` rows — per-user materialised rows can now be flipped safely.
+  - Removed stale `/app/backend/tests/test_notifications_bugfix.py` (asserted old shared-row semantics).
+- **Tests**: `/app/backend/tests/test_notifications_p0_dedup.py` — 8/8 pass. Frontend E2E green: 1 broadcast = 1 row per user (no cross-user leakage). Report `/app/test_reports/iteration_18.json`.
+
+## Pending / Roadmap
+- P1: Razorpay / AutoPay integration (Provider Pattern is ready — swap in when creds are live).
+- P2: Admin Programs / Modules editor UI.
+- P2: Media Library gallery UI over `/admin/uploads`.
