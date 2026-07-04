@@ -35,12 +35,14 @@ async def list_my_notifications(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ):
+    # NOTE: Admin broadcast route (/admin/notifications) materialises one
+    # notification row per user with ``user_membership_id`` set. So we
+    # ONLY need to filter by ``user_membership_id`` here — adding an
+    # ``is_broadcast: True`` OR clause would return every user's copy of
+    # every broadcast, causing 99+ duplicates on the user's screen.
     query: dict = {
         "deleted_at": None,
-        "$or": [
-            {"user_membership_id": current["membership_id"]},
-            {"is_broadcast": True},
-        ],
+        "user_membership_id": current["membership_id"],
     }
     if category:
         query["category"] = category
@@ -77,10 +79,7 @@ async def unread_count(
         {
             "deleted_at": None,
             "is_read": False,
-            "$or": [
-                {"user_membership_id": current["membership_id"]},
-                {"is_broadcast": True},
-            ],
+            "user_membership_id": current["membership_id"],
         }
     )
     return {"unread": n}
@@ -91,19 +90,17 @@ async def read_all(
     database: AsyncIOMotorDatabase = Depends(db),
     current: dict = Depends(get_current_user),
 ):
-    """Mark all PERSONAL notifications for this user as read.
+    """Mark all notifications for this user as read.
 
-    Broadcast notifications are intentionally excluded — the row is shared
-    across all users, so flipping ``is_read`` here would leak the "read"
-    state to everyone else. The frontend tracks per-user read state for
-    broadcasts in localStorage.
+    Broadcasts are materialised as per-user rows by the admin broadcast
+    route, so we can safely flip ``is_read`` without leaking state across
+    users.
     """
     result = await database.notifications.update_many(
         {
             "deleted_at": None,
             "is_read": False,
             "user_membership_id": current["membership_id"],
-            "is_broadcast": {"$ne": True},
         },
         {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}},
     )
@@ -116,16 +113,11 @@ async def mark_read(
     database: AsyncIOMotorDatabase = Depends(db),
     current: dict = Depends(get_current_user),
 ):
-    """Mark PERSONAL notifications as read by ID.
-
-    Broadcast IDs supplied in ``ids`` are silently ignored — read-state for
-    broadcasts is tracked per-user on the frontend to avoid cross-user leakage.
-    """
+    """Mark notifications as read by ID (personal or per-user broadcast rows)."""
     result = await database.notifications.update_many(
         {
             "id": {"$in": body.ids},
             "user_membership_id": current["membership_id"],
-            "is_broadcast": {"$ne": True},
             "deleted_at": None,
         },
         {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}},

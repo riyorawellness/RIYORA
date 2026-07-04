@@ -1,0 +1,33 @@
+{
+  "summary": "P0 broadcast duplication bug is FIXED and verified end-to-end. Backend: 8/8 pytest cases PASS covering (a) a single admin broadcast produces exactly ONE row per user (not N), (b) /me/unread-count is exact-per-user, (c) 2 broadcasts → 2 rows (not 2*N), (d) targeted notifications only visible to target, (e) /me/read-all zeros user A's unread without affecting user B, (f) /me/mark-read on a user's own broadcast row succeeds (updated=1) and does NOT touch other users' rows, (g) cross-user auth scoping enforced (updated=0 when marking another user's row). Frontend regression: logged in as 7802655202/Passw0rd!, opened /app/notifications — total=25, DOM=25 items rendered (exact match), unread badge=9 = API unread=9, distinct broadcast rows each appearing once (P0 BROADCAST, P0 TWO-A, P0 TWO-B, P0 UNREAD, P0 READALL, P0 MARKREAD). No 99+ duplication observed anywhere.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_notifications_p0_dedup.py",
+    "/app/test_reports/pytest/notif_p0_dedup.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "notifications.py /me now correctly scopes by user_membership_id only — the surgical fix (removing $or with is_broadcast) is minimal and correct given admin_send_notification materialises per-user rows.",
+    "read_all and mark_read no longer need the is_broadcast:{$ne:True} exclusion (safely removed) since per-user rows exist for every user, including for broadcasts. This also removes the need for the client-side localStorage rw.notifRead workaround previously used to track per-user read state on shared broadcast rows — main agent may want to consider dropping that dead code path in a follow-up.",
+    "Minor: /me endpoint no longer needs the OR clause but still queries by created_at desc without an index hint. Not a bug; low-risk perf note as notification volume grows.",
+    "Test note: broadcast delivery is O(N) at write time (N=active users). For very large user bases (>50k) this insert_many may need batching, but at current scale (~few hundred) it is fine."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_notifications_p0_dedup.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (login + notifications page + dedup check all pass)"},
+  "test_credentials": "Admin: 9999999999/Admin@12345. User A: 7802655202/Passw0rd! (RW001798). Backend test also auto-registers 3 fresh test users on each run (random Indian mobile numbers, password Passw0rd!, referral RW000000).",
+  "seed_data_creation": "Each test run registers 3 fresh users via /auth/send-otp → /auth/verify-otp (dev OTP 123456) → /auth/register, and sends 6+ admin broadcasts + 1 targeted notification tagged with a unique RUN_ID. Users and their notifications persist by design (no teardown). If DB hygiene is needed, /api/notifications/admin/{id} soft-delete + /api/admin/users/{mid} delete can be used.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "P0 bug (99+ dedup) closed. Regression suite is /app/backend/tests/test_notifications_p0_dedup.py — reusable. Prior suite /app/backend/tests/test_notifications_bugfix.py from iter17 is now STALE: it asserts /me/mark-read on a broadcast returns updated=0 (i.e. broadcasts are shared read-only), which was the OLD design. Under the new design (per-user materialised rows) mark-read returns updated=1 for the owner's broadcast row. Recommend main agent delete or update the old test file to avoid future confusion.",
+  "rca_of_the_issue": "Root cause: /api/notifications/me previously ran query {deleted_at:null, $or:[{user_membership_id:current}, {is_broadcast:true}]}. Because admin_send_notification already materialises one broadcast row per user AND those rows also carry is_broadcast=true, the $or clause matched (a) the user's own materialised broadcast rows AND (b) every other user's materialised broadcast rows — yielding N copies of every broadcast per user (N = number of active users). Fix (already applied): strip the $or, filter strictly by {user_membership_id: current[\"membership_id\"]}. Also removed the now-obsolete is_broadcast:{$ne:True} guard on /me/read-all and /me/mark-read since per-user rows can be flipped without affecting anyone else. Reproduction (before fix): register 3+ users, admin sends 1 broadcast, each user's /api/notifications/me returned N rows with same title. After fix: exactly 1 row per user per broadcast, verified in test_single_broadcast_produces_exactly_one_row_per_user."
+}
