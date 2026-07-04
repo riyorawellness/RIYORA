@@ -49,24 +49,47 @@ export default function PayManualQR() {
     })();
   }, [programId]);
 
-  const copy = (text, label) => {
+  const copy = async (text, label) => {
+    // Multi-strategy copy — the modern `navigator.clipboard` API rejects
+    // silently in many mobile PWAs, non-secure iframes and Android WebViews.
+    // We await it and fall back to the legacy execCommand path only if the
+    // async attempt fails, so the success toast never lies.
+    const legacyCopy = (t) => {
+      const ta = document.createElement("textarea");
+      ta.value = t;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.left = "0";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, t.length);
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch { ok = false; }
+      ta.remove();
+      return ok;
+    };
+
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
-      } else {
-        // Fallback for non-secure contexts / older WebViews
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        ta.remove();
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        toast.success(`${label} copied`);
+        return;
       }
-      toast.success(`${label} copied`);
-    } catch {
-      toast.error("Could not copy — please copy manually");
+      if (legacyCopy(text)) {
+        toast.success(`${label} copied`);
+        return;
+      }
+      throw new Error("copy unsupported");
+    } catch (e) {
+      // Last-ditch fallback: show the value so the user can copy manually
+      if (legacyCopy(text)) {
+        toast.success(`${label} copied`);
+      } else {
+        toast.error(`Couldn't copy automatically — please copy: ${text}`);
+      }
     }
   };
 
