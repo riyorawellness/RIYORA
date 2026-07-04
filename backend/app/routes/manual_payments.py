@@ -348,6 +348,10 @@ async def admin_put_settings(
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(400, "No fields to update")
+    # Safety guard: never allow deactivating the only active record without
+    # a replacement — that would break checkout for all users.
+    if updates.get("is_active") is False:
+        raise HTTPException(400, "Cannot deactivate — upload a new QR and mark it active instead")
     now = _now()
 
     existing = await database.payment_settings.find_one({"is_active": True, "deleted_at": None})

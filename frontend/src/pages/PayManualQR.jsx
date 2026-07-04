@@ -49,8 +49,24 @@ export default function PayManualQR() {
   }, [programId]);
 
   const copy = (text, label) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`${label} copied`);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for non-secure contexts / older WebViews
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Could not copy — please copy manually");
+    }
   };
 
   const doUpload = async (file) => {

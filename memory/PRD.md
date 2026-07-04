@@ -169,3 +169,21 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **CMS seed** — `db/seed_legal.py` inserts 5 placeholder pages on startup if not already present (never overwrites admin edits). `CMS_SLUGS` extended with `data-security`.
 - **Admin CMS** — AdminCMS auto-discovers the new `data-security` slug from `/admin/cms/pages`. AdminSystem already has `application_version` + `support_email` fields.
 - **Tests**: `/app/backend/tests/test_phase10.py` — 12/12 pytest cases pass; full frontend E2E green (all 5 pages + profile section + Welcome consent gate + toast + navigation gating).
+
+## Delivered on 2026-07-04 (Phase 11 — Manual QR Payment System)
+- **Provider pattern**: `payment_mode` app setting (`manual_qr` | `razorpay` | `both`) drives which checkout path the UI takes. Only `manual_qr` is active pending Razorpay AutoPay approvals.
+- **Backend**:
+  - `models/phase11.py` — request bodies with ISO-date validation.
+  - `routes/manual_payments.py` — user endpoints (`/payments/mode`, `/payments/manual/{qr,quote,submit,upload-screenshot,me,pending}`) + admin endpoints (`/admin/payments/{settings,mode,qr,manual,manual/{summary,<id>/action}}`) + public serve router (`/uploads/screenshot/<filename>`).
+  - On admin approve → inserts `program_purchases` row with `source='manual_qr'` (identical schema to Razorpay flow), generates GST-compliant invoice PDF, fires the 3-level commission engine, notifies user. Downstream business logic (access, expiry, certificates, reports, analytics, BRV) untouched.
+  - Business rule enforced: one active pending request per (user, program). Subscription programs (Inner Peace) return 409 "coming soon".
+  - Every state transition audit-logged.
+- **Frontend**:
+  - `pages/PayManualQR.jsx` — user checkout: server-computed breakdown, QR + UPI + copy buttons, "I have completed payment" → submission form with UTR + screenshot upload → success card. Clipboard write with WebView fallback.
+  - `pages/PaymentHistory.jsx` — user list of manual submissions with status badges + resubmit CTA on rejection.
+  - `pages/AdminPaymentSettings.jsx` — payment mode selector (Razorpay/Both greyed "Soon"), QR upload/replace/delete, bank/UPI fields, instructions textarea. Guard prevents deactivating the only active QR record.
+  - `pages/AdminPendingPayments.jsx` — 4-status tabs, summary tiles, table with view/download/approve/reject, approve/reject dialog with rejection-reason requirement, screenshot viewer.
+  - `pages/ProgramDetail.jsx` — button branches on payment_mode; label becomes "Pay via QR" in manual mode; Inner Peace shows "Coming Soon" badge with tagline, no purchase button; existing purchase now shows "Pending Verification" chip while awaiting admin action.
+  - `pages/Home.jsx` — prominent amber "Payment Verification Pending" card per pending request with "View details" + "Contact support" CTAs.
+  - `services/manualPayments.js` — API client + `resolveUploadUrl` helper.
+- **Tests**: `/app/backend/tests/test_phase11.py` — 17/17 pytest cases pass covering mode toggle, settings round-trip, QR upload/delete/serve, quote, submit + duplicate 409, admin summary + list, approve creates purchase + fires commissions + notifies user, reject stores reason + allows resubmit, subscription programs blocked. Frontend Playwright E2E green on every acceptance criterion. BRV still 36/36 PASS.

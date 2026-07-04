@@ -31,7 +31,7 @@ class PaymentSettingsUpsert(BaseModel):
 class PaymentSubmitRequest(BaseModel):
     program_id: str
     utr: constr(strip_whitespace=True, min_length=6, max_length=40)
-    transaction_date: str  # ISO date string
+    transaction_date: constr(pattern=r"^\d{4}-\d{2}-\d{2}$")  # ISO date YYYY-MM-DD
     screenshot_url: str    # produced by /api/admin/uploads or a new /uploads/screenshot
     remarks: Optional[str] = Field(default=None, max_length=500)
 
