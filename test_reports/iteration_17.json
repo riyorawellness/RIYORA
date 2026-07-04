@@ -1,0 +1,31 @@
+{
+  "summary": "Verified notification bug fix (admin-sent notifications now reach users) and cross-user broadcast-read isolation. Backend: 8/8 pytest cases PASS (admin create broadcast+personal, user visibility, cross-user isolation via /me/mark-read and /me/read-all, personal read persistence, BRV 36/36, payment history smoke). Frontend E2E: bell + badge on Home render live unread count, /app/notifications page shows real TEST BROADCAST and TEST PERSONAL rows created by admin, clicking a broadcast flips its unread indicator + decrements badge and PERSISTS across reload via localStorage (rw.notifRead), clicking a personal notification persists server-side, all three filter tabs work, mark-all-read fires toast and clears badge.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_notifications_bugfix.py",
+    "/app/test_reports/pytest/notif_bugfix.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Review request states user-facing testids as `notif-item-<id>` but the code actually renders `notification-item-<id>` (via TID.notificationItem in /app/frontend/src/constants/testIds.js line 104). The fallback `notif-item-<id>` in Notifications.jsx line 144 is dead code because TID.notificationItem is defined. Consider aligning docs OR the code to a single stable prefix so external tests using either pattern work; today only the TID prefix is emitted.",
+    "notificationsApi.unreadCount() intentionally fetches /notifications/me?page_size=200 rather than /me/unread-count so it can subtract LS-marked broadcasts client-side. This is correct given the shared-broadcast schema but is O(200 rows) every 30s per user; if the notifications volume grows this will need a proper server-side per-user read log (e.g. `notification_read_receipts` collection keyed by (user_membership_id, notification_id))."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_notifications_bugfix.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all E2E checks passed)"},
+  "test_credentials": "User A: 7802655202 / Passw0rd! (RW001798). User B (auto-picked): membership_id resolved from /api/admin/users, password reset to Passw0rd! via /api/admin/users/{mid}/reset-password. Admin: 9999999999 / Admin@12345.",
+  "seed_data_creation": "Each test run creates 3-5 fresh admin notifications tagged with a random RUN_ID (e.g. 'TEST BROADCAST 8f2ac1d3'). Backend test cleans nothing (notifications persist by design). Test rows accumulate in the DB — if hygiene is required later, a soft-delete via /api/notifications/admin/{id} can be added.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite at /app/backend/tests/test_notifications_bugfix.py can be reused as-is. To run: `python -m pytest backend/tests/test_notifications_bugfix.py -v -n 0`. It auto-picks a second active user for isolation tests. BRV verified 36/36 PASS via /api/admin/qa/brv. Payment history /api/payments/me still 200 OK. Frontend real testids for notification items are `notification-item-<id>` (NOT `notif-item-<id>` — the docs are slightly off, code is correct).",
+  "rca_of_the_issue": "Original bug: /app/frontend/src/pages/Notifications.jsx was rendering static mock data from '@/mock/data' instead of hitting GET /api/notifications/me — hence admin-sent notifications never appeared in the UI. Fix verified: page now uses notificationsApi.list() which queries the real endpoint. Secondary bug (broadcast read-state leaking across users) fixed on the server: /me/mark-read and /me/read-all include `is_broadcast: {$ne: true}` in their update filter, so broadcast documents are never mutated; per-user broadcast-read state is tracked in localStorage under key `rw.notifRead`. Cross-user isolation verified with two independent user logins: user A marking a broadcast returned `updated=0` from the server and user B's fresh GET /me still shows is_read=false for the same broadcast row."
+}

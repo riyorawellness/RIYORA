@@ -91,14 +91,19 @@ async def read_all(
     database: AsyncIOMotorDatabase = Depends(db),
     current: dict = Depends(get_current_user),
 ):
+    """Mark all PERSONAL notifications for this user as read.
+
+    Broadcast notifications are intentionally excluded — the row is shared
+    across all users, so flipping ``is_read`` here would leak the "read"
+    state to everyone else. The frontend tracks per-user read state for
+    broadcasts in localStorage.
+    """
     result = await database.notifications.update_many(
         {
             "deleted_at": None,
             "is_read": False,
-            "$or": [
-                {"user_membership_id": current["membership_id"]},
-                {"is_broadcast": True},
-            ],
+            "user_membership_id": current["membership_id"],
+            "is_broadcast": {"$ne": True},
         },
         {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}},
     )
@@ -111,13 +116,16 @@ async def mark_read(
     database: AsyncIOMotorDatabase = Depends(db),
     current: dict = Depends(get_current_user),
 ):
+    """Mark PERSONAL notifications as read by ID.
+
+    Broadcast IDs supplied in ``ids`` are silently ignored — read-state for
+    broadcasts is tracked per-user on the frontend to avoid cross-user leakage.
+    """
     result = await database.notifications.update_many(
         {
             "id": {"$in": body.ids},
-            "$or": [
-                {"user_membership_id": current["membership_id"]},
-                {"is_broadcast": True},
-            ],
+            "user_membership_id": current["membership_id"],
+            "is_broadcast": {"$ne": True},
             "deleted_at": None,
         },
         {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}},

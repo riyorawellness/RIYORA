@@ -7,6 +7,7 @@ import Logo from "@/components/Logo";
 import { TID } from "@/constants/testIds";
 import { activityApi } from "@/services/referrals";
 import { manualPaymentsApi } from "@/services/manualPayments";
+import { notificationsApi } from "@/services/notifications";
 import ActiveBanners from "@/components/ActiveBanners";
 import { formatApiError } from "@/lib/api";
 import {
@@ -36,6 +37,7 @@ export default function Home() {
   const [meter, setMeter] = useState(null);
   const [logging, setLogging] = useState(false);
   const [pending, setPending] = useState([]);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
   const innerPeace = PROGRAMS.find((p) => p.id === "inner-peace");
   const featured = PROGRAMS.find((p) => p.id === "level-1");
 
@@ -57,9 +59,22 @@ export default function Home() {
     }
   };
 
+  const loadNotifCount = async () => {
+    try {
+      const r = await notificationsApi.unreadCount();
+      setUnreadNotifs(r.unread || 0);
+    } catch (e) {
+      // silent
+    }
+  };
+
   useEffect(() => {
     loadMeter();
     loadPending();
+    loadNotifCount();
+    // Refresh unread every 30s so newly-broadcast admin alerts show quickly
+    const t = setInterval(loadNotifCount, 30000);
+    return () => clearInterval(t);
   }, []);
 
   const logSession = async () => {
@@ -85,8 +100,16 @@ export default function Home() {
       {/* header */}
       <div className="flex items-center justify-between">
         <Logo size="sm" />
-        <Link to="/app/notifications" className="grid h-10 w-10 place-items-center rounded-full bg-[hsl(var(--rw-grey-50))]">
+        <Link to="/app/notifications" className="relative grid h-10 w-10 place-items-center rounded-full bg-[hsl(var(--rw-grey-50))]" data-testid="home-notif-bell">
           <Bell className="h-4 w-4 text-[hsl(var(--rw-royal-deep))]" />
+          {unreadNotifs > 0 && (
+            <span
+              className="absolute -right-1 -top-1 grid h-5 min-w-[20px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white"
+              data-testid="home-notif-badge"
+            >
+              {unreadNotifs > 99 ? "99+" : unreadNotifs}
+            </span>
+          )}
         </Link>
       </div>
 
