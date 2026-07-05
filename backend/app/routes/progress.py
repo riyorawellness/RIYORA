@@ -128,7 +128,12 @@ async def complete_module(
 
     # Sequential unlock gate
     if not await is_module_unlocked(database, current["membership_id"], program_id, module):
-        raise HTTPException(403, "Complete the previous module first")
+        prev_no = int(module.get("module_number", 1)) - 1
+        prev = await database.program_modules.find_one(
+            {"program_id": program_id, "module_number": prev_no, "deleted_at": None}
+        )
+        prev_name = prev.get("name") if prev else f"Module {prev_no}"
+        raise HTTPException(403, f"Complete “{prev_name}” first before marking this one complete.")
 
     progress = await mark_module_completed(
         database, current["membership_id"], program_id, module_id, body.time_spent_sec

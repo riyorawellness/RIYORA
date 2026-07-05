@@ -93,7 +93,16 @@ async def is_module_unlocked(
     if not module.get("sequential_unlock", True):
         return True
     module_number = int(module.get("module_number", 1))
-    if module_number <= 1:
+    # The FIRST module in the program (lowest module_number, regardless of
+    # its actual value) is always the entry point — otherwise buyers with a
+    # program that starts at module_number 2 or 3 would be permanently
+    # locked out.
+    first_module = await db.program_modules.find_one(
+        {"program_id": program_id, "deleted_at": None},
+        sort=[("module_number", 1)],
+        projection={"module_number": 1, "_id": 0},
+    )
+    if first_module and int(first_module.get("module_number", 1)) >= module_number:
         return True
     prog = await db.program_progress.find_one(
         {"user_membership_id": user_membership_id, "program_id": program_id, "deleted_at": None}
