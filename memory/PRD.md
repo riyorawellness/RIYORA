@@ -218,3 +218,17 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Real-time notifications**: New `usePollUnreadCount` hook polls `/api/notifications/me/unread-count` every 20 s (skips when `document.hidden`, fires immediately on `visibilitychange`). Red badge appears on the bottom-nav bell (testid `nav-notif-badge`). Notifications page auto-refreshes every 15 s while open. Dropped the stale localStorage broadcast-read hack since broadcasts are now materialised per-user.
 - **Tests**: `/app/backend/tests/test_iter20_batch.py` (8/8 PASS). Frontend E2E green — banner delete dialog, granular delete user, real-time badge + visibility-refresh. Report `/app/test_reports/iteration_20.json`.
 
+
+## Delivered on 2026-02 (Admin content editor + Media Library)
+- **Admin Programs page** (`/admin/programs`) — list + search + create/edit dialog with full field set (name, slug, description, thumbnail, banner, price, discount, GST, validity, category, level, order, access mode, publish + subscription toggles). Publish/unpublish toggle, soft-delete, inline media upload on thumbnail/banner fields.
+- **Admin Modules editor** (`/admin/programs/:programId/modules`) — per-program modules list with up/down reorder, audio/video/PDF/image upload per module, sequential-unlock + visible toggles, assignment field.
+- **Admin Media Library** (`/admin/media`) — grid view of every uploaded asset (image/video/audio/PDF), filter by kind, search, copy-URL, delete. Multi-file upload via hidden file input.
+- **Backend**: added `get_current_user_or_admin` dep in `core/deps.py` so admin token can now fetch `/api/programs`, `/api/modules`, `/api/categories` (previously 403). Admin sees inactive/hidden content by default; regular users are **always** restricted to `is_active=true` regardless of query param (privilege-leak fix caught in code review).
+- **Backend**: `PUT /api/modules/admin/{id}` now enforces (program_id, module_number) uniqueness on update — matches the check that create already had — so admin edits can't create duplicate module numbers within a program.
+- **Tests**: `/app/backend/tests/test_iter21_programs_media.py` — 24/24 PASS. Frontend E2E green. Report `/app/test_reports/iteration_21.json`. Two follow-on privilege fixes verified by curl.
+
+### Remaining code-review notes (not launch blockers, hardening backlog)
+- Upload writes file to disk before DB insert → orphan file if Mongo write fails. Trivial fix: reorder.
+- `AdminPrograms.jsx` is 634 lines; `MediaField` should move to `/components/MediaField.jsx` for reuse.
+- Uploads served via `/api/uploads/{id}` are public (URL is opaque UUID). Fine for images/PDFs, less so for paid module video/audio — future signed-URL layer needed.
+

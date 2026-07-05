@@ -36,9 +36,11 @@ async def list_modules(
     filters = {}
     if program_id:
         filters["program_id"] = program_id
-    if is_active is not None:
-        filters["is_active"] = is_active
-    elif not current.get("is_admin"):
+    # Non-admins are always restricted to active modules.
+    if current.get("is_admin"):
+        if is_active is not None:
+            filters["is_active"] = is_active
+    else:
         filters["is_active"] = True
     return await _repo(database).list_paginated(filters, search, sort, page, page_size)
 
@@ -136,7 +138,26 @@ async def admin_update_module(
     database: AsyncIOMotorDatabase = Depends(db),
     admin: dict = Depends(get_current_admin),
 ):
-    updated = await _repo(database).update(module_id, body.model_dump(exclude_none=True), actor=admin["mobile"])
+    updates = body.model_dump(exclude_none=True)
+    # If module_number is being changed, enforce (program_id, module_number)
+    # uniqueness the same way create does.
+    if "module_number" in updates:
+        current = await database.program_modules.find_one(
+            {"id": module_id, "deleted_at": None}
+        )
+        if not current:
+            raise HTTPException(404, "Module not found")
+        clash = await database.program_modules.find_one(
+            {
+                "program_id": current["program_id"],
+                "module_number": updates["module_number"],
+                "deleted_at": None,
+                "id": {"$ne": module_id},
+            }
+        )
+        if clash:
+            raise HTTPException(409, "module_number already exists for this program")
+    updated = await _repo(database).update(module_id, updates, actor=admin["mobile"])
     if not updated:
         raise HTTPException(404, "Module not found")
     return updated

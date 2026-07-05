@@ -51,13 +51,13 @@ async def list_programs(
     filters = {}
     if category_id:
         filters["category_id"] = category_id
-    # Users only ever see active programs; admin sees everything unless
-    # they explicitly pass is_active.
+    # Only admins can see inactive/hidden programs. Regular users are
+    # ALWAYS restricted to is_active=True regardless of the query param.
     if current.get("is_admin"):
         if is_active is not None:
             filters["is_active"] = is_active
     else:
-        filters["is_active"] = True if is_active is None else is_active
+        filters["is_active"] = True
     if is_subscription is not None:
         filters["is_subscription"] = is_subscription
     return await _repo(database).list_paginated(filters, search, sort, page, page_size)
