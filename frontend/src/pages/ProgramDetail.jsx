@@ -178,7 +178,7 @@ export default function ProgramDetail() {
         )}
 
         {/* modules */}
-        <section className="mt-6" data-testid={TID.programModuleList}>
+        <section className="mt-6 pb-40" data-testid={TID.programModuleList}>
           <h3 className="rw-serif text-xl">Modules</h3>
           {!hasAccess ? (
             <div className="mt-3 grid place-items-center rounded-2xl bg-neutral-50 p-8 text-center">
