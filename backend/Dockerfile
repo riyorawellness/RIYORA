@@ -26,4 +26,7 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:8001/api/health || exit 1
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
+# Use `python -m uvicorn` (module form) instead of the `uvicorn` shell binary.
+# Module form is PATH-independent — works regardless of where pip put the
+# console-script shim.
+CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
