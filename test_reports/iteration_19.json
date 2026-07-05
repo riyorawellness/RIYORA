@@ -1,0 +1,31 @@
+{
+  "summary": "Batch verified end-to-end: (1) POST /api/admin/danger/empty-app-data — 401 without auth, 400 on wrong confirmation, 200 + `cleared` report on 'EMPTY APP DATA'; admin login still works post-wipe, RW000000 preserved, all non-admin users removed, notifications empty. (2) DELETE /api/admin/danger/users/{mid} — 400 on wrong confirmation, 400 on RW000000, 400/404 on admin, and full soft-delete flow: mobile freed for re-signup, refresh tokens revoked, downline referral_tree row still present. (3) MSG91 dev-fallback OTP works — /auth/send-otp returns dev_code=123456 when MSG91 env vars empty; /auth/verify-otp accepts 123456. (4) Password login regression: register → login post-wipe returns 200 with tokens. Frontend: admin login → /admin/users → trash icon opens delete dialog (confirm disabled on wrong text, enabled on 'DELETE USER'), user row disappears after confirm+reload. /admin/system → Danger zone tab → 3-step wipe dialog (step1→step2→step3) with case-sensitive type-to-confirm; result card renders with per-collection row counts.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminDangerZone step3", "issues": ["Very minor: after successful wipe the screenshot shows the step-3 dialog briefly overlaying the result card before dismissal — non-blocking cosmetic (setStep(0) fires before Dialog animation completes). Consider setStep(0) BEFORE setLastReport, or add a small delay + explicit onOpenChange close."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_danger_zone.py",
+    "/app/test_reports/pytest/danger_zone.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "empty_app_data wipes `refresh_tokens` collection — this also revokes the admin's own refresh session. Access tokens keep working (JWT stateless), but the admin will be forced to re-login the moment their access token expires (~15 min TTL). Acceptable given the destructive intent, but worth documenting for admins.",
+    "soft_delete_user parks mobile as `{mobile}#deleted-{ts}` — long-term this leaks storage for repeatedly deleted+re-created accounts. Consider a periodic purge job for rows with deleted_at older than N days. Not urgent.",
+    "empty_app_data does NOT purge `admin_users`, `banners`, `cms_pages`, `qr_payment_settings`, `programs`, `modules`, `categories`, `app_settings`, `system_settings`, `referral_settings`, `manual_payment_settings` — this is by design per PRD ('preserve CMS content'). Verified via post-wipe RW000000 referral validation + admin re-login.",
+    "soft_delete_user only reads users with `deleted_at: None`. If a mobile was previously soft-deleted, a fresh signup on that mobile creates a NEW row with the same mobile; the parked row still holds `original_mobile` = current mobile. Cosmetic only; the freed mobile is genuinely reusable because uniqueness is enforced only on `{mobile, deleted_at: None}`.",
+    "AdminDangerZone.jsx: `setStep(0)` runs BEFORE the async report is rendered — reordering to `setLastReport(res); setStep(0);` (already in that order) is fine; the momentary overlay flash observed is a Radix Dialog exit-animation artifact, not a state bug."
+  ],
+  "updated_files": ["/app/backend/tests/test_danger_zone.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% (delete-user dialog + 3-step wipe both green)"},
+  "test_credentials": "Admin: 9999999999 / Admin@12345. Suite auto-registers fresh users each run with dev OTP 123456 and password Passw0rd!, referral RW000000.",
+  "seed_data_creation": "Registered 1 FE test user (7899123456 → RW857766) before the browser run. The frontend test itself deleted that user via the trash-icon dialog, then wiped ALL remaining users via the danger zone. Post-wipe DB state = only admin + RW000000 + CMS content.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression suite for danger zone lives at /app/backend/tests/test_danger_zone.py (10 tests, ~9s runtime). It self-seeds users, calls the wipe, and verifies preservation of admin + RW000000. Safe to re-run any time; it destroys existing non-admin users on purpose. If MSG91_* env vars ever get set, TestOtpDevFallback will fail because dev_code will no longer be echoed — that's the expected production behaviour, not a regression.",
+  "rca_of_the_issue": "N/A — no bugs found. Only cosmetic dialog exit-animation flicker on step 3 after wipe, called out as design polish."
+}

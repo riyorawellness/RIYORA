@@ -1,8 +1,17 @@
 """OTP generation, storage and verification helpers.
 
-Dev mode (OTP_DEV_MODE=true) accepts OTP_DEV_CODE (default 123456) for any
-mobile without hitting an SMS provider. Real 6-digit OTP is still generated
-and logged to the console so the flow mirrors production.
+Delivery order:
+1. If MSG91 env vars are configured, we attempt to dispatch the OTP via
+   MSG91 Flow API. On MSG91 network / API failure we RAISE — the caller
+   translates to a 502 for the user so they can retry.
+2. If MSG91 is NOT configured (typical for local/dev), we fall back to
+   ``OTP_DEV_MODE`` semantics: log the code, optionally echo it back in
+   the API response so devs can auto-fill.
+
+Production checklist:
+- Set ``MSG91_AUTH_KEY``, ``MSG91_TEMPLATE_ID``, ``MSG91_SENDER_ID`` in .env
+- Set ``OTP_DEV_MODE=false`` (removes the dev_code echo and the ``123456``
+  master OTP that always verifies)
 """
 import logging
 import secrets
@@ -11,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.config import get_settings
+from app.services.sms_msg91 import Msg91Error, is_configured, send_otp_sms
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -29,7 +39,11 @@ def _gen_code() -> str:
 
 
 async def send_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: str) -> dict:
-    """Create an OTP row for (mobile, purpose). Enforces per-hour resend limit."""
+    """Create an OTP row for (mobile, purpose). Enforces per-hour resend limit.
+
+    Returns a dict with:
+      ok (bool), expires_in_seconds (int|None), dev_code (str|None), error (str|None)
+    """
     one_hour_ago = (_now() - timedelta(hours=1)).isoformat()
     recent = await db.otp_verifications.count_documents(
         {"mobile": mobile, "purpose": purpose, "created_at": {"$gte": one_hour_ago}}
@@ -50,20 +64,44 @@ async def send_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: str) -> dict:
     }
     await db.otp_verifications.insert_one(doc)
 
-    logger.info("[OTP] mobile=%s purpose=%s code=%s (dev_mode=%s)", mobile, purpose, code, settings.OTP_DEV_MODE)
+    # Try MSG91 dispatch if configured. Otherwise stay in dev/log-only mode.
+    msg91_active = is_configured()
+    if msg91_active:
+        try:
+            await send_otp_sms(mobile, code)
+        except Msg91Error as exc:
+            # Bubble up so the auth route can 502 the client.
+            logger.error("[OTP] MSG91 dispatch failed for %s: %s", mobile, exc)
+            return {"ok": False, "error": "SMS provider failure. Please try again."}
+
+    logger.info(
+        "[OTP] mobile=%s purpose=%s code=%s msg91=%s dev_mode=%s",
+        mobile,
+        purpose,
+        code,
+        msg91_active,
+        settings.OTP_DEV_MODE,
+    )
+
+    # Only echo dev_code when dev mode is ON *and* MSG91 is NOT active. In
+    # production (msg91 wired + dev_mode off) the client never sees the code.
+    dev_code = None
+    if settings.OTP_DEV_MODE and not msg91_active:
+        dev_code = settings.OTP_DEV_CODE
 
     return {
         "ok": True,
         "expires_in_seconds": settings.OTP_TTL_MIN * 60,
-        # Return code only in dev mode so the client can auto-fill it.
-        "dev_code": settings.OTP_DEV_CODE if settings.OTP_DEV_MODE else None,
+        "dev_code": dev_code,
     }
 
 
 async def verify_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: str, code: str) -> bool:
     """Return True if code is valid & not expired. Marks record verified.
 
-    In dev mode, OTP_DEV_CODE always succeeds if any OTP was ever requested.
+    ``OTP_DEV_CODE`` (default ``123456``) is accepted ONLY when
+    ``OTP_DEV_MODE=true`` AND MSG91 is not configured. In production
+    (msg91 wired + dev_mode off) the master code is disabled.
     """
     latest = await db.otp_verifications.find_one(
         {"mobile": mobile, "purpose": purpose},
@@ -76,11 +114,14 @@ async def verify_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: str, code: 
         return False
 
     if latest.get("verified"):
-        # Already used
         return False
 
     accepted = code == latest["code"]
-    if settings.OTP_DEV_MODE and code == settings.OTP_DEV_CODE:
+    if (
+        settings.OTP_DEV_MODE
+        and not is_configured()
+        and code == settings.OTP_DEV_CODE
+    ):
         accepted = True
 
     await db.otp_verifications.update_one(
@@ -91,10 +132,7 @@ async def verify_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: str, code: 
 
 
 async def consume_verified_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: str) -> bool:
-    """Check that the most recent OTP for (mobile, purpose) is verified and unexpired.
-
-    Used at registration/reset time to ensure the user did complete OTP step.
-    """
+    """Check that the most recent OTP for (mobile, purpose) is verified and unexpired."""
     latest = await db.otp_verifications.find_one(
         {"mobile": mobile, "purpose": purpose},
         sort=[("created_at", -1)],
@@ -103,6 +141,7 @@ async def consume_verified_otp(db: AsyncIOMotorDatabase, mobile: str, purpose: s
         return False
     if not latest.get("verified"):
         return False
-    # Mark consumed so it can't be reused.
-    await db.otp_verifications.update_one({"_id": latest["_id"]}, {"$set": {"consumed": True, "verified": False}})
+    await db.otp_verifications.update_one(
+        {"_id": latest["_id"]}, {"$set": {"consumed": True, "verified": False}}
+    )
     return True

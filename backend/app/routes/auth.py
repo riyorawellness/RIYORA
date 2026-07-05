@@ -74,7 +74,11 @@ async def send_otp_endpoint(body: SendOtpRequest, database: AsyncIOMotorDatabase
 
     result = await send_otp(database, body.mobile, body.purpose)
     if not result["ok"]:
-        raise HTTPException(status_code=429, detail=result["error"])
+        err = result.get("error", "Unable to send OTP")
+        # SMS provider (MSG91) failure → 502. Rate limit → 429.
+        if "SMS provider" in err:
+            raise HTTPException(status_code=502, detail=err)
+        raise HTTPException(status_code=429, detail=err)
     return OtpSentResponse(
         message="OTP sent successfully",
         expires_in_seconds=result["expires_in_seconds"],

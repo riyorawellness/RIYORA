@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2 } from "lucide-react";
+import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { adminApi } from "@/services/admin";
@@ -24,6 +24,9 @@ export default function AdminUsers() {
   const [detail, setDetail] = useState(null);
   const [pwDialog, setPwDialog] = useState(null);
   const [pwValue, setPwValue] = useState("");
+  const [deleteDialog, setDeleteDialog] = useState(null); // { membership_id, full_name, mobile }
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [page, setPage] = useState(1);
 
   const load = async () => {
@@ -97,6 +100,26 @@ export default function AdminUsers() {
       toast.success("CSV downloaded");
     } catch (e) {
       toast.error(formatApiError(e, "Export failed"));
+    }
+  };
+
+  const softDelete = async () => {
+    if (!deleteDialog) return;
+    if (deleteConfirm.trim() !== "DELETE USER") {
+      toast.error('Type "DELETE USER" exactly to confirm');
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await adminApi.softDeleteUser(deleteDialog.membership_id, deleteConfirm.trim());
+      toast.success(`Deleted ${deleteDialog.full_name}. Mobile freed.`);
+      setDeleteDialog(null);
+      setDeleteConfirm("");
+      load();
+    } catch (e) {
+      toast.error(formatApiError(e, "Delete failed"));
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -186,6 +209,16 @@ export default function AdminUsers() {
                         <CheckCircle2 className="h-3 w-3" />
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-1 border-red-300 text-red-700 hover:bg-red-50"
+                      onClick={() => { setDeleteConfirm(""); setDeleteDialog({ membership_id: u.membership_id, full_name: u.full_name, mobile: u.mobile }); }}
+                      data-testid={`admin-user-delete-${u.membership_id}`}
+                      title="Delete user"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -230,6 +263,57 @@ export default function AdminUsers() {
             User will be forced to sign in again on all devices.
           </p>
           <Button onClick={resetPassword} data-testid="admin-user-pw-confirm">Reset</Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteDialog} onOpenChange={(o) => !o && setDeleteDialog(null)}>
+        <DialogContent data-testid="admin-user-delete-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-800">
+              <Trash2 className="h-5 w-5" /> Delete user
+            </DialogTitle>
+            <DialogDescription className="text-neutral-700">
+              You are about to permanently delete
+              {" "}
+              <span className="font-semibold">{deleteDialog?.full_name}</span>
+              {" "}
+              (<span className="font-mono text-xs">{deleteDialog?.membership_id}</span>
+              {" "}· +91 {deleteDialog?.mobile}).
+              <br />
+              The account is soft-deleted, all sessions are revoked, and the
+              mobile number is freed for re-signup. The user&rsquo;s referral
+              tree entry is preserved so downline sponsors are unaffected.
+              <br />
+              Type <span className="font-mono font-semibold">DELETE USER</span>{" "}
+              to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="del-confirm">Confirmation phrase</Label>
+            <Input
+              id="del-confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder="DELETE USER"
+              autoComplete="off"
+              autoFocus
+              data-testid="admin-user-delete-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog(null)} disabled={deleteBusy} data-testid="admin-user-delete-cancel">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={softDelete}
+              disabled={deleteBusy || deleteConfirm.trim() !== "DELETE USER"}
+              data-testid="admin-user-delete-confirm"
+            >
+              {deleteBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Delete user
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

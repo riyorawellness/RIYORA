@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, ShieldCheck, Building2 } from "lucide-react";
+import { Loader2, Save, ShieldCheck, Building2, AlertTriangle } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { adminApi } from "@/services/admin";
 import { formatApiError } from "@/lib/api";
+import AdminDangerZone from "@/pages/AdminDangerZone";
 
 export default function AdminSystem() {
   const [sys, setSys] = useState(null);
@@ -73,6 +74,7 @@ export default function AdminSystem() {
           <TabsTrigger value="social" data-testid="sys-tab-social">Social</TabsTrigger>
           <TabsTrigger value="app" data-testid="sys-tab-app">Application</TabsTrigger>
           <TabsTrigger value="security" data-testid="sys-tab-security"><ShieldCheck className="mr-1 h-4 w-4" /> Security</TabsTrigger>
+          <TabsTrigger value="danger" data-testid="sys-tab-danger" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-900"><AlertTriangle className="mr-1 h-4 w-4" /> Danger zone</TabsTrigger>
         </TabsList>
 
         <TabsContent value="company">
@@ -144,6 +146,12 @@ export default function AdminSystem() {
               Save
             </Button>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="danger">
+          <div className="mt-4">
+            <AdminDangerZone />
+          </div>
         </TabsContent>
       </Tabs>
     </div>

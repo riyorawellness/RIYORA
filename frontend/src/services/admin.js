@@ -25,6 +25,14 @@ export const adminApi = {
   exportUsersBlob: () =>
     api.get("/admin/users/export", { responseType: "blob" }).then((r) => r.data),
 
+  // Danger Zone
+  emptyAppData: (confirmation) =>
+    api.post("/admin/danger/empty-app-data", { confirmation }).then((r) => r.data),
+  softDeleteUser: (mid, confirmation) =>
+    api
+      .delete(`/admin/danger/users/${mid}`, { data: { confirmation } })
+      .then((r) => r.data),
+
   // CMS
   cmsList: () => api.get("/admin/cms/pages").then((r) => r.data),
   cmsGet: (slug) => api.get(`/admin/cms/pages/${slug}`).then((r) => r.data),
