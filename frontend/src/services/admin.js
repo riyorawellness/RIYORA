@@ -76,6 +76,12 @@ export const adminApi = {
   listUploads: () => api.get("/admin/uploads").then((r) => r.data),
   deleteUpload: (id) => api.delete(`/admin/uploads/${id}`).then((r) => r.data),
 
+  // Admin profile
+  changeMyPassword: (old_password, new_password) =>
+    api
+      .post("/admin/change-password", { old_password, new_password })
+      .then((r) => r.data),
+
   // Programs (admin ops go through /api/programs/admin*)
   listPrograms: (params = {}) => api.get("/programs", { params }).then((r) => r.data),
   getProgram: (id) => api.get(`/programs/${id}`).then((r) => r.data),

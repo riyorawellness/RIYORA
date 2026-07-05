@@ -103,6 +103,51 @@ async def admin_profile(current: dict = Depends(get_current_admin)):
     return admin_to_public(current)
 
 
+@router.post("/change-password", response_model=MessageResponse)
+async def admin_change_password(
+    body: dict,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_admin),
+):
+    """Signed-in admin changes their own password.
+
+    Requires the current password (so a stolen bearer token alone can't
+    lock the admin out). All refresh tokens are revoked so every other
+    device is signed out.
+    """
+    old_password = (body.get("old_password") or "").strip()
+    new_password = (body.get("new_password") or "").strip()
+
+    if not old_password or not new_password:
+        raise HTTPException(status_code=400, detail="Both old_password and new_password are required")
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    if new_password == old_password:
+        raise HTTPException(status_code=400, detail="New password must differ from the current password")
+    if not verify_password(old_password, current["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await database.admins.update_one(
+        {"_id": current["_id"]},
+        {"$set": {"password_hash": hash_password(new_password), "updated_at": now}},
+    )
+    # Sign out every other session — the admin will need to log in again
+    # on other devices with the new password.
+    await database.refresh_tokens.update_many(
+        {"user_id": current["mobile"], "role": "admin"},
+        {"$set": {"revoked": True}},
+    )
+    await log_action(
+        database,
+        actor_id=current["mobile"],
+        action="admin.change_password",
+        entity="admin",
+        entity_id=str(current["_id"]),
+    )
+    return MessageResponse(message="Password changed successfully")
+
+
 @router.get("/stats", response_model=dict)
 async def admin_stats(current: dict = Depends(get_current_admin), database: AsyncIOMotorDatabase = Depends(db)):
     """Legacy quick stats endpoint. Prefer /admin/dashboard/overview (Phase 7)."""

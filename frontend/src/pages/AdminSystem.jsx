@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, ShieldCheck, Building2, AlertTriangle } from "lucide-react";
+import { Loader2, Save, ShieldCheck, Building2, AlertTriangle, KeyRound, Eye, EyeOff } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -129,23 +129,27 @@ export default function AdminSystem() {
         </TabsContent>
 
         <TabsContent value="security">
-          <Card className="rw-card p-6">
-            <Fields
-              obj={sec}
-              setObj={setSec}
-              keys={[
-                ["password_min_length", "Password minimum length"],
-                ["otp_expiry_seconds", "OTP expiry (seconds)"],
-                ["login_attempt_limit", "Login attempts before lock"],
-                ["session_timeout_minutes", "Session timeout (minutes)"],
-              ]}
-              type="number"
-            />
-            <Button onClick={saveSec} disabled={saving} className="mt-4" data-testid="sec-save">
-              {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-              Save
-            </Button>
-          </Card>
+          <div className="mt-4 space-y-4">
+            <AdminChangePasswordCard />
+            <Card className="rw-card p-6">
+              <h3 className="mb-3 rw-serif text-lg">Security policy</h3>
+              <Fields
+                obj={sec}
+                setObj={setSec}
+                keys={[
+                  ["password_min_length", "Password minimum length"],
+                  ["otp_expiry_seconds", "OTP expiry (seconds)"],
+                  ["login_attempt_limit", "Login attempts before lock"],
+                  ["session_timeout_minutes", "Session timeout (minutes)"],
+                ]}
+                type="number"
+              />
+              <Button onClick={saveSec} disabled={saving} className="mt-4" data-testid="sec-save">
+                {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
+                Save
+              </Button>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="danger">
@@ -179,4 +183,114 @@ function num(v) {
   if (v === "" || v === null || v === undefined) return null;
   const n = Number(v);
   return isNaN(n) ? null : n;
+}
+
+function AdminChangePasswordCard() {
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [showOld, setShowOld] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!oldPw || !newPw) return toast.error("Enter both passwords");
+    if (newPw.length < 8) return toast.error("New password must be at least 8 characters");
+    if (newPw === oldPw) return toast.error("New password must differ from the current one");
+    if (newPw !== confirmPw) return toast.error("Confirmation does not match");
+
+    setBusy(true);
+    try {
+      await adminApi.changeMyPassword(oldPw, newPw);
+      toast.success("Password changed. Other sessions have been signed out.");
+      setOldPw("");
+      setNewPw("");
+      setConfirmPw("");
+    } catch (err) {
+      toast.error(formatApiError(err, "Change failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="rw-card p-6" data-testid="admin-change-password-card">
+      <div className="flex items-start gap-3">
+        <div className="rounded-full bg-primary/10 p-2">
+          <KeyRound className="h-5 w-5 text-primary" />
+        </div>
+        <div className="flex-1">
+          <h3 className="rw-serif text-lg">Change my password</h3>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            You must know your current password. All your other signed-in
+            devices will be signed out.
+          </p>
+          <form onSubmit={submit} className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <Label>Current password</Label>
+              <div className="relative">
+                <Input
+                  type={showOld ? "text" : "password"}
+                  value={oldPw}
+                  onChange={(e) => setOldPw(e.target.value)}
+                  autoComplete="current-password"
+                  className="pr-10"
+                  data-testid="admin-pw-old"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOld((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  tabIndex={-1}
+                >
+                  {showOld ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <Label>New password</Label>
+              <div className="relative">
+                <Input
+                  type={showNew ? "text" : "password"}
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  className="pr-10"
+                  data-testid="admin-pw-new"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNew((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  tabIndex={-1}
+                >
+                  {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Minimum 8 characters</p>
+            </div>
+            <div>
+              <Label>Confirm new password</Label>
+              <Input
+                type={showNew ? "text" : "password"}
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                data-testid="admin-pw-confirm"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Button type="submit" disabled={busy} data-testid="admin-pw-submit">
+                {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+                Change password
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Card>
+  );
 }
