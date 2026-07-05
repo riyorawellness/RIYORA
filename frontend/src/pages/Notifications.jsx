@@ -46,6 +46,20 @@ export default function Notifications() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Real-time refresh: poll for new notifications every 15s while this page
+  // is open, plus an immediate refresh when the tab regains focus.
+  useEffect(() => {
+    const tick = () => {
+      if (!document.hidden) load({ silent: true });
+    };
+    const id = setInterval(tick, 15000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [load]);
+
   const markOne = async (n) => {
     if (n.is_read) return;
     // Optimistic

@@ -28,9 +28,11 @@ export const adminApi = {
   // Danger Zone
   emptyAppData: (confirmation) =>
     api.post("/admin/danger/empty-app-data", { confirmation }).then((r) => r.data),
-  softDeleteUser: (mid, confirmation) =>
+  softDeleteUser: (mid, confirmation, options = {}) =>
     api
-      .delete(`/admin/danger/users/${mid}`, { data: { confirmation } })
+      .delete(`/admin/danger/users/${mid}`, {
+        data: { confirmation, ...options },
+      })
       .then((r) => r.data),
 
   // CMS

@@ -45,6 +45,18 @@ class EmptyAppDataRequest(BaseModel):
 
 class DeleteUserRequest(BaseModel):
     confirmation: str = Field(..., description=f'Must equal "{DELETE_USER_CONFIRM_PHRASE}"')
+    # Optional: granular data-scope removal. If any of these are True, the
+    # corresponding data is HARD-deleted (removed permanently). The core
+    # user + membership rows are always SOFT-deleted so the referral tree
+    # keeps working for downline sponsors.
+    wipe_purchases: bool = False        # program_purchases + program_progress
+    wipe_notifications: bool = True     # notifications for this user
+    wipe_certificates: bool = False     # certificates issued
+    wipe_assessments: bool = False      # assessment_results
+    wipe_bank_details: bool = False     # bank_details
+    wipe_commissions: bool = False      # commissions earned by them (destructive — affects payout history)
+    wipe_referral_tree: bool = False    # referral_tree row (destructive — breaks downline lineage)
+    wipe_profile: bool = True           # profiles row
 
 
 def _iso() -> str:
@@ -187,16 +199,52 @@ async def soft_delete_user(
         {"user_id": membership_id}, {"$set": {"revoked": True}}
     )
 
+    # Granular hard-deletes based on admin's checkbox selections.
+    wiped: dict[str, int] = {}
+    if body.wipe_profile:
+        r = await database.profiles.delete_many({"user_membership_id": membership_id})
+        wiped["profiles"] = r.deleted_count
+    if body.wipe_purchases:
+        r = await database.program_purchases.delete_many({"user_membership_id": membership_id})
+        wiped["program_purchases"] = r.deleted_count
+        r = await database.program_progress.delete_many({"user_membership_id": membership_id})
+        wiped["program_progress"] = r.deleted_count
+        r = await database.payment_requests.delete_many({"user_membership_id": membership_id})
+        wiped["payment_requests"] = r.deleted_count
+        r = await database.payment_orders.delete_many({"user_membership_id": membership_id})
+        wiped["payment_orders"] = r.deleted_count
+    if body.wipe_notifications:
+        r = await database.notifications.delete_many({"user_membership_id": membership_id})
+        wiped["notifications"] = r.deleted_count
+    if body.wipe_certificates:
+        r = await database.certificates.delete_many({"user_membership_id": membership_id})
+        wiped["certificates"] = r.deleted_count
+    if body.wipe_assessments:
+        r = await database.assessment_results.delete_many({"user_membership_id": membership_id})
+        wiped["assessment_results"] = r.deleted_count
+    if body.wipe_bank_details:
+        r = await database.bank_details.delete_many({"user_membership_id": membership_id})
+        wiped["bank_details"] = r.deleted_count
+    if body.wipe_commissions:
+        r = await database.commissions.delete_many({"beneficiary_membership_id": membership_id})
+        wiped["commissions"] = r.deleted_count
+        r = await database.payouts.delete_many({"user_membership_id": membership_id})
+        wiped["payouts"] = r.deleted_count
+    if body.wipe_referral_tree:
+        r = await database.referral_tree.delete_many({"user_membership_id": membership_id})
+        wiped["referral_tree"] = r.deleted_count
+
     await log_action(
         database,
         actor_id=admin["mobile"],
         action="danger.delete_user",
         entity="user",
         entity_id=membership_id,
-        meta={"freed_mobile": freed_mobile},
+        meta={"freed_mobile": freed_mobile, "wiped": wiped},
     )
 
     return {
         "success": True,
         "message": f"User {membership_id} deleted. Mobile {freed_mobile} freed for re-signup.",
+        "wiped": wiped,
     }

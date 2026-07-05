@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 import { adminApi } from "@/services/admin";
 import { formatApiError } from "@/lib/api";
@@ -25,6 +25,8 @@ export default function AdminBanners() {
   const [editing, setEditing] = useState(null); // banner id or "new"
   const [draft, setDraft] = useState(EMPTY);
   const [uploading, setUploading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // banner object
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -84,14 +86,18 @@ export default function AdminBanners() {
     }
   };
 
-  const del = async (id) => {
-    if (!confirm("Delete banner?")) return;
+  const del = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
     try {
-      await adminApi.deleteBanner(id);
-      toast.success("Deleted");
+      await adminApi.deleteBanner(deleteTarget.id);
+      toast.success("Banner deleted");
+      setDeleteTarget(null);
       load();
     } catch (e) {
       toast.error(formatApiError(e, "Delete failed"));
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -142,7 +148,7 @@ export default function AdminBanners() {
                 <Button size="sm" variant="outline" onClick={() => openEdit(b)} data-testid={`banner-edit-${b.id}`}>
                   <Pencil className="mr-1 h-3 w-3" /> Edit
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => del(b.id)} data-testid={`banner-delete-${b.id}`}>
+                <Button size="sm" variant="outline" onClick={() => setDeleteTarget(b)} data-testid={`banner-delete-${b.id}`}>
                   <Trash2 className="h-3 w-3" />
                 </Button>
               </div>
@@ -215,6 +221,32 @@ export default function AdminBanners() {
             </div>
             <Button onClick={save} className="w-full" data-testid="banner-save">Save banner</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && !deleteBusy && setDeleteTarget(null)}>
+        <DialogContent data-testid="banner-delete-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-800">
+              <Trash2 className="h-5 w-5" /> Delete banner
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-semibold">
+                &ldquo;{deleteTarget?.title}&rdquo;
+              </span>
+              ? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteBusy} data-testid="banner-delete-cancel">
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={del} disabled={deleteBusy} data-testid="banner-delete-confirm">
+              {deleteBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Delete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

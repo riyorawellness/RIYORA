@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 20 — verified all 3 items requested by main agent: (1) Banner delete now uses shadcn Dialog: trash icon opens data-testid='banner-delete-dialog', DELETE endpoint is NOT hit until Confirm; Cancel closes without deleting. (2) Danger Zone /admin/system has new second card danger-delete-user-card with search picker + 8 scope checkboxes (wipe_profile, wipe_notifications, wipe_purchases, wipe_certificates, wipe_assessments, wipe_bank_details, wipe_commissions, wipe_referral_tree). Default checked = profile+notifications; wipe_referral_tree default UNCHECKED (referral-tree row preserved for downline lineage). DELETE /api/admin/danger/users/{mid} accepts the booleans and returns a `wiped` dict only for the keys purged; user disappears from /admin/users. (3) Real-time notification badge (nav-notif-badge): appeared within ~18s after admin broadcast (20s poll interval), and updated within 0.5s after visibilitychange when tab regained focus (visibility handler fires an immediate poll). (Regression) /api/notifications/me returns exactly 1 row per user per broadcast — no duplication.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter20_batch.py",
+    "/app/test_reports/pytest/iter20_batch.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "usePollUnreadCount hook fires an immediate `tick()` on mount AND on every visibilitychange when tab becomes visible; combined with 20s interval this means a rapid tab-switch cycle can burst 2-3 quick polls to /me/unread-count. Trivial load, but consider a lightweight `Math.max(0, 5000 - (Date.now()-lastPoll))` guard if this endpoint gets expensive later.",
+    "admin_danger.py DeleteUserRequest defaults `wipe_notifications=True` and `wipe_profile=True` on the server too — so an ancient/badly-written client that omits those booleans will still wipe them. Consider forcing an explicit body from the API surface (Pydantic Field(..., description=...)) once versioning is a concern; today acceptable because the only caller is the new FE.",
+    "The `wiped` dict returned by /admin/danger/users/{mid} bundles related collections under one flag (e.g. wipe_purchases -> program_purchases + program_progress + payment_requests + payment_orders). That is convenient but not self-describing — an admin reading the result card only sees one line each. Consider surfacing them as sub-counts or documenting the mapping in the UI tooltip on the scope checkbox.",
+    "Notifications page polls every 15s AND BottomNav polls every 20s → when the notifications page is open, up to 2 identical /me/unread-count-esque calls fire concurrently. Not a bug but a small optimisation: BottomNav could subscribe to the page's fetch instead of double-polling.",
+    "Nice — the visibilitychange handler correctly guards against `document.hidden` inside tick() so no wasted polling when tab is background.",
+    "Minor a11y: banner-delete-dialog has DialogDescription (great) but the delete-user dialog uses DialogDescription with a conditional child — when `selected` is falsy the description is empty and Radix logs the 'Missing Description' warning briefly (visible in console). Non-blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter20_batch.py"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 tests passed)",
+    "frontend": "100% (banner-delete dialog, granular delete user, real-time badge + visibility poll all green)"
+  },
+  "test_credentials": "Admin: 9999999999 / Admin@12345. Users auto-registered in-run with dev OTP 123456, password Passw0rd!, referral RW000000.",
+  "seed_data_creation": "Created several throwaway users during the test run (referral RW000000). One was deleted via banner-delete UI, one via danger-zone granular delete (default scopes), one used for real-time notification polling verification (RW264824, still active with 2 broadcast notifications). All broadcast notifications sent by tests are titled 'ITER20 realtime broadcast #1/#2' and 'TEST_*' for banner/notification templates — safe to leave in place or purge via danger zone.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression suite at /app/backend/tests/test_iter20_batch.py covers: banner CRUD delete, granular delete-user with 3 scope permutations (only-notifications, default, all-on), user disappearance from admin list, unread-count endpoint shape, broadcast bumps unread-count by exactly 1, no-duplication regression. Runs in ~7s. Existing /app/backend/tests/test_danger_zone.py (iter19) still valid — it wipes ALL non-admin users, so run test_iter20_batch BEFORE test_danger_zone if you want the FE test data to survive. FE side, the real-time badge test uses document.hidden overrides via Object.defineProperty — works reliably in Chromium; if switching to Firefox you'll need dispatchEvent + Page.emulate.",
+  "rca_of_the_issue": "N/A — all three fixes/features working as spec'd. No bugs found."
+}
