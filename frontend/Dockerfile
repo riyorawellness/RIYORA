@@ -6,9 +6,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Deps first for cache
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --network-timeout 300000
+# Deps first for cache. The `yarn.lock*` glob makes the lockfile optional
+# (Emergent's Save-to-GitHub sometimes omits lock files). Without a lock,
+# yarn resolves versions from package.json ranges on the fly.
+COPY package.json yarn.lock* ./
+RUN yarn install --network-timeout 300000
 
 # Source + build
 COPY . .
