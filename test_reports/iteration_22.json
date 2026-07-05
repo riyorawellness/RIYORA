@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 22 — P0 ModulePlayer 'no module found' bug fix VALIDATED end-to-end. Backend: 8/8 new pytests (test_module_player_p0.py) covering GET /api/programs/{id} + GET /api/modules/{moduleId} for video/audio/pdf/empty modules, 404 handling, unauthenticated rejection, and /modules/me/by-program/{id} unlock flags (module1 unlocked / module2 locked / no raw url leak). Regression: iter21 suite (24/24) still green. Frontend: seeded fresh user + program + 3 modules (video/audio/pdf) + active purchase via admin API, then Playwright-navigated ModulePlayer for each module type — all three rendered the correct <video>/<audio>/<iframe> element with the correct src, only one renderer per module (video > audio > pdf), watermark 'TEST_UI Player · RW829163' present on all three, controlsList='nodownload noplaybackrate' on video and audio, PDF iframe uses '#toolbar=0&navpanes=0', and 'Back' testid player-back-btn is rendered. Error paths: invalid moduleId shows friendly 'Module not found' UI (not 'no module found', not blank); mismatched programId shows 'Program not found' (formatApiError from backend 404). Sequential-unlock guard verified at API level (module2 is_unlocked=false).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ProgramDetail modules list", "issues": ["Sticky bottom purchase/subscribe bar (`sticky bottom-24 z-30`) can overlap the last module card on the small mobile viewport (390x844). During Playwright click on the AUDIO module card the click passed to the sticky bar area and navigation did not fire — repro'd once on first run. Direct URL navigation and the video card (top of list) work fine. Suggest adding bottom padding equal to the sticky bar height on the modules section, OR hide the purchase bar when hasAccess=true (only 'Active' chip needs to show, purchase button is already hidden but the whole card still takes vertical space)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_module_player_p0.py",
+    "/app/test_reports/pytest/module_player_p0.xml",
+    "/app/backend/tests/test_iter21_programs_media.py",
+    "/app/test_reports/pytest/iter21_programs_media.xml"
+  ],
+  "action_items": [
+    "OPTIONAL polish (not blocking P0): on ProgramDetail, when hasAccess=true, either hide the sticky purchase card entirely or add bottom padding on the modules section so the last module card is not obscured by the sticky bar on small viewports.",
+    "OPTIONAL: The ModulePlayer error state uses generic formatApiError message. For a 404 on the module the user currently sees 'Module not found' (from backend). If E1 wants an even more branded string, override in ModulePlayer.jsx — but it is NOT the reported P0.",
+    "CODE REVIEW (carried over from iter21, still open): modules.list_modules privilege leak — non-admin can pass ?is_active=false; put the admin-branch check first.",
+    "CODE REVIEW: /api/modules/{module_id} does NOT verify the caller has a purchase for the program. Any authenticated user (even without a purchase) can GET a module and its raw video_url/audio_url/pdf_url. The 'security' relies on the frontend not routing there without a purchase. Given /modules/me/by-program is careful to strip raw urls, this is inconsistent. Consider gating /modules/{id} behind an active purchase (or admin) to prevent URL-scraping."
+  ],
+  "critical_code_review_comments": [
+    "ModulePlayer.jsx line 41: strict equality `module.program_id !== programId` — both are strings (uuids from url params + Mongo docs) so this works, but if any future migration renames the field, the friendly error will misfire. Consider guarding with `module?.program_id`.",
+    "ModulePlayer.jsx line 59: `nav(-1)` on back — if the user opened the module in a fresh tab, `window.history.length > 1` is still true because BrowserRouter counts internal history. Behaviour is fine today but note the guard is not a reliable 'has-referrer' check.",
+    "ModulePlayer.jsx line 138 `controlsList='nodownload noplaybackrate'` and `disablePictureInPicture` reduce but do NOT prevent download — determined users can still capture the video URL from DevTools Network tab because module.video_url is a plain https URL served from /api/uploads/{id} (public, no auth). If E1 wants real DRM, the video must be streamed through /api/content/token as the review request notes (Phase 4). Current fix is 'good enough as a UX signal' but is NOT a security control.",
+    "GET /api/modules/{module_id} in backend/app/routes/modules.py returns the raw document including video_url/audio_url/pdf_url to ANY authenticated user — no check for active purchase. The parallel endpoint /modules/me/by-program purposefully strips these URLs. Recommend adding the same purchase check on /modules/{id}.",
+    "ModulePlayer watermark 'TEST_UI Player · RW829163' is rendered at 40% white opacity inside <MediaBox> — trivially removable with CSS. Fine as anti-casual-piracy signal, but do not describe as security.",
+    "ProgramDetail.jsx line 200 `const locked = !(m.is_unlocked ?? m.unlocked);` — nullish-coalesce is correct, but if the backend ever returns `is_unlocked: null` (not undefined) the fallback kicks in which is desired; keep as-is.",
+    "The sticky purchase card overlaps the last module card on 390x844 (see design issue above) — this is why the initial Playwright click sequence on the audio card via ProgramDetail failed but direct URL navigation succeeded.",
+    "ProgramDetail.jsx line 155: `Expires {formatDate(status.active_purchase?.expiry_date)}` — when hasAccess=true but active_purchase is missing (edge case) it will render 'Expires —'. Minor."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_module_player_p0.py (NEW)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 new + 24/24 iter21 regression = 32/32)",
+    "frontend": "100% (video / audio / pdf renderers, watermark, controlsList/pictureInPicture/toolbar, error states, back button — all verified)"
+  },
+  "test_credentials": "Admin 9999999999 / Admin@12345. UI seed user (test data still in DB): mobile 9147207437 / Passw0rd! / RW829163 with an active 30d purchase on program 7cb02bca-a547-4e6a-a757-ab51bf0f68c0 (TEST_UI ModPlayer). This user has 3 modules (video/audio/pdf) already unlocked (module1+module2 marked completed via progress upsert).",
+  "seed_data_creation": "Frontend test seed left in place (see test_credentials above) so E1 can log in as the UI user and reproduce visually if needed. Pytest suite creates+tears down its own fixtures (soft-delete on programs/modules/purchases) so DB grows only by teardown-timestamps. Safe to leave.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run backend regression with: `pytest backend/tests/test_module_player_p0.py backend/tests/test_iter21_programs_media.py -n 0 -v`. Both suites use -n 0 (share module-scoped fixtures). UI seed at /tmp/ui_seed.json is host-local and won't survive container restart; regenerate with the inline seed block in this iteration if needed. Testids used by ModulePlayer: `module-player`, `module-video`, `module-audio`, `module-pdf`, `player-back-btn`. Note the DESIGN issue: on ProgramDetail (small viewport), the sticky bottom purchase card overlaps the last module card, so if you write a Playwright script that iterates cards, either scroll each into view before click OR bypass by direct-URL navigation to /app/programs/{pid}/module/{mid} as done in this iteration.",
+  "rca_of_the_issue": "The reported 'no module found' error was caused by a legacy ModulePlayer.jsx that read from a mock data source instead of the real API. E1's rewrite (a) uses `useParams()` to pull both `id` (program) and `moduleId`, (b) fires GET /api/programs/{id} and GET /api/modules/{moduleId} in parallel, (c) verifies module.program_id matches the route program id (else shows friendly 'doesn't belong' error), (d) chooses renderer as video > audio > pdf with a fallback 'No media attached yet' message, and (e) never falls through to the old 'no module found' string. Both API endpoints already existed and return the raw video_url/audio_url/pdf_url — validated by 8/8 pytests. The end-to-end fix is confirmed working."
+}
