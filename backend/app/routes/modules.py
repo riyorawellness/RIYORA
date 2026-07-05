@@ -5,7 +5,7 @@ Phase 4: User endpoint enforces access + module unlock status.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.core.deps import db, get_current_admin, get_current_user
+from app.core.deps import db, get_current_admin, get_current_user, get_current_user_or_admin
 from app.models.phase2 import (
     PaginatedResponse,
     ProgramModuleCreate,
@@ -25,7 +25,7 @@ def _repo(database: AsyncIOMotorDatabase) -> BaseRepository:
 @router.get("", response_model=PaginatedResponse)
 async def list_modules(
     database: AsyncIOMotorDatabase = Depends(db),
-    _current: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user_or_admin),
     program_id: str | None = Query(default=None),
     search: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
@@ -38,6 +38,8 @@ async def list_modules(
         filters["program_id"] = program_id
     if is_active is not None:
         filters["is_active"] = is_active
+    elif not current.get("is_admin"):
+        filters["is_active"] = True
     return await _repo(database).list_paginated(filters, search, sort, page, page_size)
 
 
@@ -45,7 +47,7 @@ async def list_modules(
 async def get_module(
     module_id: str,
     database: AsyncIOMotorDatabase = Depends(db),
-    _current: dict = Depends(get_current_user),
+    _current: dict = Depends(get_current_user_or_admin),
 ):
     doc = await _repo(database).get(module_id)
     if not doc:

@@ -44,6 +44,9 @@ import AdminAuditLog from "@/pages/AdminAuditLog";
 import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminReports from "@/pages/AdminReports";
 import AdminQA from "@/pages/AdminQA";
+import AdminPrograms from "@/pages/AdminPrograms";
+import AdminProgramModules from "@/pages/AdminProgramModules";
+import AdminMedia from "@/pages/AdminMedia";
 import AdminShell from "@/components/AdminShell";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -108,6 +111,9 @@ function App() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/analytics" element={<AdminAnalytics />} />
             <Route path="/admin/reports" element={<AdminReports />} />
+            <Route path="/admin/programs" element={<AdminPrograms />} />
+            <Route path="/admin/programs/:programId/modules" element={<AdminProgramModules />} />
+            <Route path="/admin/media" element={<AdminMedia />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/admin/referrals" element={<AdminReferrals />} />

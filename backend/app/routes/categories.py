@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.core.deps import db, get_current_admin, get_current_user
+from app.core.deps import db, get_current_admin, get_current_user_or_admin
 from app.models.phase2 import (
     PaginatedResponse,
     ProgramCategoryCreate,
@@ -20,7 +20,7 @@ def _repo(database: AsyncIOMotorDatabase) -> BaseRepository:
 @router.get("", response_model=PaginatedResponse)
 async def list_categories(
     database: AsyncIOMotorDatabase = Depends(db),
-    _current: dict = Depends(get_current_user),
+    _current: dict = Depends(get_current_user_or_admin),
     search: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
@@ -37,7 +37,7 @@ async def list_categories(
 async def get_category(
     category_id: str,
     database: AsyncIOMotorDatabase = Depends(db),
-    _current: dict = Depends(get_current_user),
+    _current: dict = Depends(get_current_user_or_admin),
 ):
     doc = await _repo(database).get(category_id)
     if not doc:

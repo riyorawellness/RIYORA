@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 21 — verified new Admin Programs / Modules / Media Library features. Backend: 24/24 pytest tests green (get_current_user_or_admin dep, programs CRUD + slug 409 + activate/deactivate + soft-delete, modules CRUD + duplicate module_number 409 + swap-reorder pattern, image/pdf/mp3 uploads returning /api/uploads/<id>, public GET serving file, DELETE soft-deleting). Frontend: full E2E flow passed — admin login → /admin/programs (sidebar entries admin-nav-programs + admin-nav-media present) → create program → list refresh shows it → navigate to /admin/programs/{id}/modules → create 2 modules → down-arrow reorder swaps position → delete module works → /admin/media → upload PNG via hidden file input → grid updates → filter Image → delete + confirm removes card. MediaField (in program create dialog) uploads via file input → absolute URL (https://…/api/uploads/<id>) is stored in the text field and preview <img> renders. Regression: /admin/users, /admin/banners, /admin/system, /admin/notifications all load without error after sidebar reorder.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter21_programs_media.py",
+    "/app/test_reports/pytest/iter21_programs_media.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Programs.list_programs — for regular users the endpoint hardcodes is_active=True even if the caller passes is_active=false. Line: `filters['is_active'] = True if is_active is None else is_active` will let a user pass ?is_active=false and see inactive programs (privilege leak). Fix: for non-admin ALWAYS force filters['is_active']=True and ignore the query param. (Modules has the same subtle risk — user can pass ?is_active=false and see hidden modules.)",
+    "modules.list_modules — same shape as programs: `if is_active is not None: filters['is_active']=is_active` runs BEFORE the non-admin fallback, so a regular user can query /api/modules?is_active=false and see hidden modules. Reorder branches: check admin flag first.",
+    "modules.admin_update_module accepts a raw new module_number without checking for collision with another module in the same program. The swap-reorder flow uses a temp 100000-99000 range but if a human/malicious client PUTs module_number=1 while another module already has 1, they'll silently coexist and violate the uniqueness invariant that create enforces (409). Consider re-running the same duplicate check in update.",
+    "admin_phase7.upload_file writes the file to disk BEFORE inserting the DB doc — if Mongo write fails you get an orphan file on disk. Trivial mitigation: swap the order (insert first, then write bytes, remove doc on write failure).",
+    "AdminPrograms.MediaField absolute-URL logic: `res?.url?.startsWith('/api/')` — if the backend ever changes the response shape (e.g. returns already-absolute URLs), the code falls back to `${window.location.origin}${res.url}` which would be the FRONTEND origin, not the backend. Recommend keying off REACT_APP_BACKEND_URL unconditionally.",
+    "AdminPrograms.jsx is 634 lines and exports MediaField from a page file — consider extracting MediaField to /components/MediaField.jsx for reuse; also passes the file-size threshold in the code-review guidelines closer to the 700-line cap.",
+    "AdminProgramModules.moveModule uses `100000 + random(90000)` as a temp number; if two admins reorder concurrently they can collide. Server enforces uniqueness in create but NOT in update (see item 3), so today this is a silent race. Adding an update-time collision check upstream fixes both.",
+    "Uploads served via /api/uploads/{id} are PUBLIC (no auth) — comment says 'URLs are opaque UUIDs so not sensitive'. That's OK for images/PDFs already meant to be public course content, but the same endpoint will also serve module video/audio which the app intentionally gates behind /content/token elsewhere. If admins upload paid-content media into /admin/uploads and store the raw URL, security-through-obscurity leaks the paid asset. Consider: keep a separate 'public' vs 'protected' storage bucket, or force module_video uploads to go through a signed-URL endpoint."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter21_programs_media.py"
+  ],
+  "success_rate": {
+    "backend": "100% (24/24 pytest tests passed)",
+    "frontend": "100% (all E2E steps green: create program, create+reorder+delete modules, media upload/filter/delete, MediaField absolute-URL storage, sidebar regression)"
+  },
+  "test_credentials": "Admin: 9999999999 / Admin@12345 at /admin/login. Regular user auto-created by tests via /auth/register with dev OTP 123456.",
+  "seed_data_creation": "Backend test suite creates and cleans up its own data via session teardown: throwaway programs slug 'iter21-*', throwaway modules, 3 tiny uploads (PNG/PDF/MP3). All soft-deleted after run. The frontend E2E test created 1 program, 2 modules, 1 upload — all cleaned up in-run. One TEST_ITER21_USER regular user account remains registered (needed for user-vs-admin visibility regression test). One user account with mobile roughly 9<epoch>, referral RW000000.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression suite at /app/backend/tests/test_iter21_programs_media.py covers 24 tests grouped into 4 classes (TestAdminReadCatalog, TestProgramsCRUD, TestModulesCRUD, TestUploads). Must run with -n 0 because tests share state within a class via `pytest.shared_*` module attributes and loadscope may assign classes to different xdist workers. Run: `pytest backend/tests/test_iter21_programs_media.py -n 0 -v`. Runs in ~5s. All uploads use tiny inline fixtures (1x1 PNG ~67 B, minimal PDF ~200 B, silent MP3 ~200 B) so no external fixtures required. Frontend flow uses data-testids as documented in the review request: admin-nav-programs / admin-nav-media / admin-programs-new / admin-program-row-<id> / admin-program-modules-<id> / admin-modules-new / admin-module-down-<id> / admin-module-delete-<id> / admin-module-delete-confirm / admin-media-file-input / admin-media-item-<id> / admin-media-delete-<id> / admin-media-delete-confirm / admin-program-field-thumbnail-file. MediaField file inputs are hidden — must use set_input_files() on the '<testid>-file' element, NOT click Upload.",
+  "rca_of_the_issue": "N/A — no bugs. All features working as spec'd. Only surfaced code-review observations for future hardening (privilege check in list_* filters, upload-order atomicity, MediaField origin fallback, uniqueness on module_number update, public-URL security model for premium media)."
+}

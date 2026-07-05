@@ -12,7 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 import uuid
 from datetime import datetime, timezone
 
-from app.core.deps import db, get_current_admin, get_current_user
+from app.core.deps import db, get_current_admin, get_current_user, get_current_user_or_admin
 from app.models.phase2 import PaginatedResponse, ProgramCreate, ProgramUpdate
 from app.models.phase4 import PurchaseIntentCreate
 from app.repositories.base import BaseRepository
@@ -39,10 +39,10 @@ def _repo(database: AsyncIOMotorDatabase) -> BaseRepository:
 @router.get("", response_model=PaginatedResponse)
 async def list_programs(
     database: AsyncIOMotorDatabase = Depends(db),
-    _current: dict = Depends(get_current_user),
+    current: dict = Depends(get_current_user_or_admin),
     search: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
-    is_active: bool | None = Query(default=True),
+    is_active: bool | None = Query(default=None),
     is_subscription: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
@@ -51,8 +51,13 @@ async def list_programs(
     filters = {}
     if category_id:
         filters["category_id"] = category_id
-    if is_active is not None:
-        filters["is_active"] = is_active
+    # Users only ever see active programs; admin sees everything unless
+    # they explicitly pass is_active.
+    if current.get("is_admin"):
+        if is_active is not None:
+            filters["is_active"] = is_active
+    else:
+        filters["is_active"] = True if is_active is None else is_active
     if is_subscription is not None:
         filters["is_subscription"] = is_subscription
     return await _repo(database).list_paginated(filters, search, sort, page, page_size)
@@ -62,7 +67,7 @@ async def list_programs(
 async def get_program(
     program_id: str,
     database: AsyncIOMotorDatabase = Depends(db),
-    _current: dict = Depends(get_current_user),
+    _current: dict = Depends(get_current_user_or_admin),
 ):
     doc = await _repo(database).get(program_id)
     if not doc:

@@ -50,3 +50,38 @@ async def get_current_admin(
     if not admin:
         raise HTTPException(status_code=401, detail="Admin not found")
     return admin
+
+
+async def get_current_user_or_admin(
+    authorization: str | None = Header(default=None),
+    database: AsyncIOMotorDatabase = Depends(db),
+) -> dict:
+    """Accepts either a user OR an admin access token.
+
+    Used on read-only catalog endpoints (programs / modules) so the admin
+    editor UI can fetch the same data without needing separate routes.
+    Returns the user doc for user tokens, or the admin doc (with an
+    ``is_admin=True`` flag) for admin tokens.
+    """
+    token = _extract_bearer(authorization)
+    try:
+        payload = decode_token(token)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from e
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+
+    role = payload.get("role")
+    if role == "admin":
+        admin = await database.admins.find_one({"mobile": payload["sub"], "deleted_at": None})
+        if not admin:
+            raise HTTPException(status_code=401, detail="Admin not found")
+        admin["is_admin"] = True
+        return admin
+    if role == "user":
+        user = await database.users.find_one({"membership_id": payload["sub"], "deleted_at": None})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        user["is_admin"] = False
+        return user
+    raise HTTPException(status_code=403, detail="Unknown role")

@@ -75,4 +75,26 @@ export const adminApi = {
   },
   listUploads: () => api.get("/admin/uploads").then((r) => r.data),
   deleteUpload: (id) => api.delete(`/admin/uploads/${id}`).then((r) => r.data),
+
+  // Programs (admin ops go through /api/programs/admin*)
+  listPrograms: (params = {}) => api.get("/programs", { params }).then((r) => r.data),
+  getProgram: (id) => api.get(`/programs/${id}`).then((r) => r.data),
+  createProgram: (body) => api.post("/programs/admin", body).then((r) => r.data),
+  updateProgram: (id, body) => api.put(`/programs/admin/${id}`, body).then((r) => r.data),
+  activateProgram: (id) => api.post(`/programs/admin/${id}/activate`).then((r) => r.data),
+  deactivateProgram: (id) => api.post(`/programs/admin/${id}/deactivate`).then((r) => r.data),
+  deleteProgram: (id) => api.delete(`/programs/admin/${id}`).then((r) => r.data),
+
+  // Modules
+  listModules: (params = {}) => api.get("/modules", { params }).then((r) => r.data),
+  getModule: (id) => api.get(`/modules/${id}`).then((r) => r.data),
+  createModule: (body) => api.post("/modules/admin", body).then((r) => r.data),
+  updateModule: (id, body) => api.put(`/modules/admin/${id}`, body).then((r) => r.data),
+  deleteModule: (id) => api.delete(`/modules/admin/${id}`).then((r) => r.data),
+
+  // Program Categories
+  listCategories: (params = {}) => api.get("/categories", { params }).then((r) => r.data),
+  createCategory: (body) => api.post("/categories/admin", body).then((r) => r.data),
+  updateCategory: (id, body) => api.put(`/categories/admin/${id}`, body).then((r) => r.data),
+  deleteCategory: (id) => api.delete(`/categories/admin/${id}`).then((r) => r.data),
 };
