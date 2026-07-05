@@ -438,13 +438,15 @@ function DeleteUserCard() {
               <UserX className="h-5 w-5" /> Delete user
             </DialogTitle>
             <DialogDescription>
-              {selected && (
+              {selected ? (
                 <>
                   Removing{" "}
                   <span className="font-semibold">{selected.full_name}</span>
                   {" "}(<span className="font-mono text-xs">{selected.membership_id}</span>
                   {" "}· +91 {selected.mobile}).
                 </>
+              ) : (
+                "Select a user to configure the delete scope."
               )}
             </DialogDescription>
           </DialogHeader>

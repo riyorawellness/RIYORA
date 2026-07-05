@@ -211,3 +211,10 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Password-only login (already active)** — Register requires 8+ char password (double confirmed). Login = mobile + password. OTP is only used for `register` and `forgot_password` purposes.
 - **Docs** — `/app/docs/GOLIVE.md` — step-by-step production checklist (empty test data → MSG91 setup → env vars → smoke test).
 - **Tests** — `/app/backend/tests/test_danger_zone.py` (10/10 PASS). Frontend Playwright E2E green — both dialogs and both wipe paths. Report `/app/test_reports/iteration_19.json`.
+
+## Delivered on 2026-02 (Bug fixes + Real-time notifications)
+- **Banner delete bug**: Replaced native `window.confirm()` (silently blocked in PWA/installed webviews) with a shadcn Dialog. Testid `banner-delete-dialog`. Backend endpoint unchanged.
+- **Danger Zone — granular Delete User**: Added a second card in Admin → System → Danger zone with a search picker + 8 scope checkboxes (profile, notifications, purchases, certificates, assessments, bank details, commissions, referral-tree). Server-side `DeleteUserRequest` accepts booleans; response returns a `wiped` dict summarising what was purged. `wipe_referral_tree` defaults OFF to protect downline sponsors.
+- **Real-time notifications**: New `usePollUnreadCount` hook polls `/api/notifications/me/unread-count` every 20 s (skips when `document.hidden`, fires immediately on `visibilitychange`). Red badge appears on the bottom-nav bell (testid `nav-notif-badge`). Notifications page auto-refreshes every 15 s while open. Dropped the stale localStorage broadcast-read hack since broadcasts are now materialised per-user.
+- **Tests**: `/app/backend/tests/test_iter20_batch.py` (8/8 PASS). Frontend E2E green — banner delete dialog, granular delete user, real-time badge + visibility-refresh. Report `/app/test_reports/iteration_20.json`.
+
