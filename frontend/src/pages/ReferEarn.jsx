@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -6,14 +6,8 @@ import {
   FileText,
   Landmark,
   Loader2,
-  MessageCircle,
   Users,
-  QrCode,
-  Share2,
   Wallet,
-  Mail,
-  Send,
-  X,
 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -39,9 +33,6 @@ export default function ReferEarn() {
   const { user } = useAuth();
   const [dash, setDash] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [shareOpen, setShareOpen] = useState(false);
-  const [qrOpen, setQrOpen] = useState(false);
-  const [qr, setQr] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -56,47 +47,26 @@ export default function ReferEarn() {
     })();
   }, []);
 
-  const link = dash?.referral_link || `${window.location.origin}/join/${user?.membership_id || ""}`;
-  const shareText = useMemo(
-    () =>
-      `Join me on RIYORA Wellness — heal, learn and earn together. Sign up with my referral: ${user?.membership_id}\n${link}`,
-    [user, link]
-  );
-
   const copy = async (value, label = "Copied") => {
     try {
       await navigator.clipboard.writeText(value);
       toast.success(label);
     } catch {
-      toast.error("Copy failed — copy manually.");
-    }
-  };
-
-  const openQR = async () => {
-    setQrOpen(true);
-    if (qr) return;
-    try {
-      const d = await referralsApi.shareQR();
-      setQr(d);
-    } catch (e) {
-      toast.error(formatApiError(e, "Could not generate QR"));
-    }
-  };
-
-  const nativeShare = async () => {
-    if (navigator.share) {
+      // Fallback for restrictive WebView contexts.
       try {
-        await navigator.share({
-          title: "RIYORA WELLNESS",
-          text: shareText,
-          url: link,
-        });
-        return;
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        toast.success(label);
       } catch {
-        // fall through to modal
+        toast.error("Copy failed — copy manually.");
       }
     }
-    setShareOpen(true);
   };
 
   if (loading) {
@@ -138,35 +108,13 @@ export default function ReferEarn() {
           </div>
         </div>
 
-        <div className="mt-4 flex items-center gap-2 rounded-xl bg-white/10 p-2 text-xs">
-          <span className="flex-1 truncate" data-testid={TID.referLink}>
-            {link}
-          </span>
-          <button
-            onClick={() => copy(link, "Referral link copied")}
-            className="rw-chip bg-white/20 text-white"
-            data-testid="refer-copy-link-btn"
-          >
-            <Copy className="h-3 w-3" /> Copy
-          </button>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button
-            onClick={nativeShare}
-            className="rw-btn-pill bg-white text-[hsl(var(--rw-royal))]"
-            data-testid={TID.referShareBtn}
-          >
-            <Share2 className="h-4 w-4" /> Share
-          </button>
-          <button
-            onClick={openQR}
-            className="rw-btn-pill bg-white/10 text-white"
-            data-testid="refer-qr-btn"
-          >
-            <QrCode className="h-4 w-4" /> QR Code
-          </button>
-        </div>
+        <button
+          onClick={() => copy(dash?.membership_id, "Referral ID copied")}
+          className="rw-btn-pill mt-4 w-full bg-white text-[hsl(var(--rw-royal))]"
+          data-testid="refer-copy-id-btn"
+        >
+          <Copy className="h-4 w-4" /> Copy referral ID
+        </button>
       </div>
 
       {/* earnings */}
@@ -276,127 +224,7 @@ export default function ReferEarn() {
         </Link>
       </div>
 
-      {/* Share sheet */}
-      {shareOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end bg-black/50 backdrop-blur-sm"
-          onClick={() => setShareOpen(false)}
-          data-testid="share-sheet"
-        >
-          <div
-            className="w-full rounded-t-3xl bg-white p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="rw-serif text-xl">Share your referral</h3>
-              <button onClick={() => setShareOpen(false)}>
-                <X className="h-5 w-5 text-muted-foreground" />
-              </button>
-            </div>
-            <div className="grid grid-cols-4 gap-3 text-center">
-              <ShareBtn
-                icon={MessageCircle}
-                label="WhatsApp"
-                onClick={() =>
-                  window.open(
-                    `https://wa.me/?text=${encodeURIComponent(shareText)}`,
-                    "_blank"
-                  )
-                }
-                testid="share-whatsapp"
-              />
-              <ShareBtn
-                icon={Send}
-                label="SMS"
-                onClick={() =>
-                  (window.location.href = `sms:?&body=${encodeURIComponent(
-                    shareText
-                  )}`)
-                }
-                testid="share-sms"
-              />
-              <ShareBtn
-                icon={Mail}
-                label="Email"
-                onClick={() =>
-                  (window.location.href = `mailto:?subject=${encodeURIComponent(
-                    "Join RIYORA Wellness"
-                  )}&body=${encodeURIComponent(shareText)}`)
-                }
-                testid="share-email"
-              />
-              <ShareBtn
-                icon={Copy}
-                label="Copy"
-                onClick={() => copy(shareText, "Message copied")}
-                testid="share-copy"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* QR modal */}
-      {qrOpen && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6"
-          onClick={() => setQrOpen(false)}
-          data-testid="qr-modal"
-        >
-          <div
-            className="w-full max-w-xs rounded-3xl bg-white p-5 text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-widest text-[hsl(var(--rw-royal))]">
-                RIYORA WELLNESS
-              </span>
-              <button onClick={() => setQrOpen(false)}>
-                <X className="h-4 w-4 text-muted-foreground" />
-              </button>
-            </div>
-            <h3 className="rw-serif text-xl">Scan to join with</h3>
-            <div className="rw-serif text-2xl text-[hsl(var(--rw-royal-deep))]">
-              {dash?.membership_id}
-            </div>
-            <div className="mt-3 grid place-items-center rounded-2xl bg-neutral-50 p-4">
-              {qr?.data_url ? (
-                <img
-                  src={qr.data_url}
-                  alt="QR"
-                  className="h-56 w-56"
-                  data-testid="refer-qr-image"
-                />
-              ) : (
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              )}
-            </div>
-            <button
-              onClick={() => copy(link, "Referral link copied")}
-              className="mt-3 w-full rw-btn-pill rw-btn-primary"
-              data-testid="qr-copy-link-btn"
-            >
-              <Copy className="h-4 w-4" /> Copy link
-            </button>
-          </div>
-        </div>
-      )}
     </div>
-  );
-}
-
-function ShareBtn({ icon: Icon, label, onClick, testid }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex flex-col items-center gap-2 rounded-2xl bg-neutral-50 p-3"
-      data-testid={testid}
-    >
-      <div className="grid h-11 w-11 place-items-center rounded-full bg-white shadow-sm">
-        <Icon className="h-5 w-5 text-[hsl(var(--rw-royal))]" />
-      </div>
-      <span className="text-xs">{label}</span>
-    </button>
   );
 }
 
