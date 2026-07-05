@@ -208,8 +208,17 @@ async def admin_create_program(
         cat = await database.program_categories.find_one({"id": body.category_id, "deleted_at": None})
         if not cat:
             raise HTTPException(400, "category_id does not exist")
-    if await database.programs.find_one({"slug": body.slug, "deleted_at": None}):
-        raise HTTPException(409, "Program slug already exists")
+    # Check for slug conflict — both live AND soft-deleted rows, because
+    # the Mongo unique index doesn't filter by ``deleted_at``.
+    existing = await database.programs.find_one({"slug": body.slug})
+    if existing:
+        if existing.get("deleted_at"):
+            raise HTTPException(
+                409,
+                f"Slug '{body.slug}' was used by a previously deleted program. "
+                "Pick a different slug (e.g. add a suffix).",
+            )
+        raise HTTPException(409, f"A program with slug '{body.slug}' already exists.")
     return await _repo(database).create(body.model_dump(), actor=admin["mobile"])
 
 

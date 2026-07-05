@@ -16,6 +16,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
+from pymongo.errors import DuplicateKeyError  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
@@ -132,6 +133,31 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
         loc = ".".join(str(p) for p in e.get("loc", []) if p != "body")
         msgs.append(f"{loc}: {e.get('msg')}" if loc else e.get("msg", "invalid"))
     return JSONResponse(status_code=422, content={"detail": "; ".join(msgs)})
+
+
+@app.exception_handler(DuplicateKeyError)
+async def duplicate_key_handler(_request: Request, exc: DuplicateKeyError):
+    """Return a friendly 409 whenever a MongoDB unique index rejects a write.
+
+    Without this, ``motor`` bubbles the raw ``DuplicateKeyError`` up as a
+    500 — and 500s from CORS-protected origins land in the browser as an
+    opaque "Network error" instead of a readable message.
+
+    We do our best to extract the conflicting field name from the driver's
+    ``details.keyPattern`` so the message tells the admin what to change.
+    """
+    field = None
+    try:
+        key_pattern = (getattr(exc, "details", None) or {}).get("keyPattern") or {}
+        if key_pattern:
+            field = next(iter(key_pattern.keys()), None)
+    except Exception:
+        field = None
+    label = (field or "value").replace("_", " ")
+    return JSONResponse(
+        status_code=409,
+        content={"detail": f"A record with this {label} already exists."},
+    )
 
 
 # ---- API v1 router (mounted under /api) ------------------------------------
