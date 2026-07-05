@@ -68,10 +68,12 @@ export default function AdminDangerZone() {
     setBusy(true);
     try {
       const res = await adminApi.emptyAppData(typed.trim());
-      setLastReport(res);
-      toast.success("App data cleared successfully");
+      // Close dialog first so the step-3 modal doesn't briefly overlap the
+      // result card (Radix exit animation).
       setStep(0);
       setTyped("");
+      setLastReport(res);
+      toast.success("App data cleared successfully");
     } catch (e) {
       toast.error(formatApiError(e, "Wipe failed"));
     } finally {

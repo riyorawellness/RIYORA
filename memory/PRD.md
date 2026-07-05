@@ -201,3 +201,13 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - P1: Razorpay / AutoPay integration (Provider Pattern is ready — swap in when creds are live).
 - P2: Admin Programs / Modules editor UI.
 - P2: Media Library gallery UI over `/admin/uploads`.
+
+
+## Delivered on 2026-02 (Go-live pack — Danger Zone + MSG91 SMS)
+- **Empty App Data (Danger Zone)** — `POST /api/admin/danger/empty-app-data` behind required `confirmation: "EMPTY APP DATA"` body (case-sensitive). Wipes users (except admin), memberships (except RW000000), referral tree, profiles, purchases, progress, assessments, certificates, notifications, OTPs, refresh tokens, audit logs, commissions, payouts, bank details, subscriptions, manual-payment requests, login lockouts. Preserves admin + company root + programs/modules/banners/policies/QR/system settings.
+- **Soft Delete User** — `DELETE /api/admin/danger/users/{mid}` behind `confirmation: "DELETE USER"`. Stamps `deleted_at`, parks mobile as `<mobile>#deleted-<ts>` so the number is immediately reusable for a fresh signup, revokes refresh tokens, preserves referral_tree row so downline sponsors keep their commissions.
+- **Frontend UX** — Admin → System & security → **Danger zone** tab hosts a 3-step confirmation modal (step 1 awareness → step 2 last-chance → step 3 type-to-confirm `EMPTY APP DATA`). Admin → Users list gets a red 🗑 trash icon per row that opens a typed-confirmation dialog (`DELETE USER`).
+- **MSG91 OTP integration** — `app/services/sms_msg91.py` speaks Flow API v5. Env-driven (`MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`, `MSG91_SENDER_ID`, optional `MSG91_OTP_VAR`). When any var is missing, `send_otp` falls back to logging the code + returning `dev_code` for auto-fill (dev mode). Real SMS is dispatched the moment all three vars are set AND `OTP_DEV_MODE=false`. On MSG91 network / API failure the `/auth/send-otp` route returns 502.
+- **Password-only login (already active)** — Register requires 8+ char password (double confirmed). Login = mobile + password. OTP is only used for `register` and `forgot_password` purposes.
+- **Docs** — `/app/docs/GOLIVE.md` — step-by-step production checklist (empty test data → MSG91 setup → env vars → smoke test).
+- **Tests** — `/app/backend/tests/test_danger_zone.py` (10/10 PASS). Frontend Playwright E2E green — both dialogs and both wipe paths. Report `/app/test_reports/iteration_19.json`.
