@@ -196,8 +196,10 @@ export default function ProgramDetail() {
               {modules.map((m) => {
                 const type = m.type || pickType(m);
                 const Icon = ICONS[type] || PlayCircle;
-                const locked = !m.unlocked;
-                const done = m.completed;
+                // Backend returns is_unlocked / is_completed. Older seed data
+                // may use `unlocked` / `completed` — fall back so both work.
+                const locked = !(m.is_unlocked ?? m.unlocked);
+                const done = m.is_completed ?? m.completed;
                 return (
                   <Link
                     key={m.id}
@@ -209,7 +211,9 @@ export default function ProgramDetail() {
                     onClick={(e) => {
                       if (locked) {
                         e.preventDefault();
-                        toast.error("Complete the previous module to unlock");
+                        toast.error(
+                          "This module is locked. Complete the previous one first, or ask an admin to disable sequential unlock.",
+                        );
                       }
                     }}
                     className={`flex items-center gap-3 rounded-2xl border p-3 ${
