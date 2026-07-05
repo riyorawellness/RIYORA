@@ -58,21 +58,33 @@ LOCKOUT_MINUTES = 15
 
 
 async def check_lockout(db: AsyncIOMotorDatabase, mobile: str, role: str) -> None:
-    """Raise 429 if the (mobile, role) is currently locked out."""
+    """Raise 429 if the (mobile, role) is currently locked out.
+
+    Robust to legacy / corrupt ``locked_until`` values so a bad row can't
+    500 the login endpoint (which surfaced as "Network error" in the
+    browser). We only re-raise the intentional HTTPException; any parse
+    error is swallowed and treated as "not locked".
+    """
     doc = await db.login_attempts.find_one({"mobile": mobile, "role": role})
-    if not doc:
+    if not doc or not doc.get("locked_until"):
         return
-    if doc.get("locked_until"):
-        try:
-            lu = datetime.fromisoformat(doc["locked_until"].replace("Z", "+00:00"))
-            if lu > datetime.now(timezone.utc):
-                mins = int((lu - datetime.now(timezone.utc)).total_seconds() / 60) + 1
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"Too many failed login attempts. Try again in {mins} minute(s).",
-                )
-        except (ValueError, TypeError):
-            pass
+    try:
+        raw = doc["locked_until"]
+        if isinstance(raw, datetime):
+            lu = raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+        elif isinstance(raw, str):
+            lu = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        else:
+            return
+    except (ValueError, TypeError, AttributeError):
+        return
+    if lu <= datetime.now(timezone.utc):
+        return
+    mins = int((lu - datetime.now(timezone.utc)).total_seconds() / 60) + 1
+    raise HTTPException(
+        status_code=429,
+        detail=f"Too many failed login attempts. Try again in {mins} minute(s).",
+    )
 
 
 async def record_failed_login(db: AsyncIOMotorDatabase, mobile: str, role: str) -> None:

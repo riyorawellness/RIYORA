@@ -64,12 +64,29 @@ api.interceptors.response.use(
 );
 
 export const formatApiError = (err, fallback = "Something went wrong.") => {
+  // Server responded with an error → prefer its `detail`.
   const d = err?.response?.data?.detail;
-  if (!d) return err?.message || fallback;
-  if (typeof d === "string") return d;
-  if (Array.isArray(d)) return d.map((e) => e?.msg || JSON.stringify(e)).join("; ");
-  if (typeof d === "object" && d.msg) return d.msg;
-  return fallback;
+  if (d) {
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) return d.map((e) => e?.msg || JSON.stringify(e)).join("; ");
+    if (typeof d === "object" && d.msg) return d.msg;
+  }
+  // No response at all → distinguish real connection failures from axios's
+  // generic "Network Error" text (which users find confusing).
+  const code = err?.code;
+  if (code === "ECONNABORTED" || err?.message?.toLowerCase().includes("timeout")) {
+    return "Request timed out. Check your connection and try again.";
+  }
+  if (!err?.response) {
+    return "Can't reach the server. Check your internet or refresh the page and retry.";
+  }
+  // Fall back to HTTP status if server gave one but no detail body.
+  const status = err?.response?.status;
+  if (status === 401) return "Session expired. Please sign in again.";
+  if (status === 403) return "You don't have permission to do that.";
+  if (status === 404) return "Not found.";
+  if (status && status >= 500) return "Server error. Please try again in a moment.";
+  return err?.message || fallback;
 };
 
 export default api;

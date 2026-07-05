@@ -110,9 +110,13 @@ settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=settings.CORS_ORIGINS.split(","),
+    # Strip whitespace so `"a, b"` in .env doesn't produce a leading-space
+    # origin that never matches the browser's Origin header. Filter empties
+    # in case of trailing commas.
+    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
@@ -157,6 +161,27 @@ async def duplicate_key_handler(_request: Request, exc: DuplicateKeyError):
     return JSONResponse(
         status_code=409,
         content={"detail": f"A record with this {label} already exists."},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all so uncaught exceptions still return JSON with CORS headers.
+
+    Without this, Starlette's built-in 500 handler generates a plain
+    ``Internal Server Error`` text response that doesn't go through the
+    CORS middleware — the browser then reports it as a generic
+    "Network error" and the frontend toast is useless.
+    """
+    logger.exception(
+        "Unhandled exception on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Server error. Please try again in a moment."},
     )
 
 
