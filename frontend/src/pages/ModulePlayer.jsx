@@ -1,165 +1,238 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, FastForward, Rewind, Pause, Play, Volume2 } from "lucide-react";
-import { MODULES_BY_PROGRAM, PROGRAMS } from "@/mock/data";
+import { toast } from "sonner";
+import {
+  ChevronLeft,
+  Download,
+  FileText,
+  Loader2,
+  Music,
+  Video,
+} from "lucide-react";
+
+import api, { formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { TID } from "@/constants/testIds";
 
 /**
- * A unified mock player for video / audio / pdf. Streaming UI only — no download.
- * A watermark shows the user's full name + membership id on all content types
- * as per the anti-piracy requirement.
+ * Real module player. Fetches the module + program from the API and
+ * renders the actual admin-uploaded media (video / audio / pdf).
+ *
+ * Anti-piracy: a watermark showing the user's full name + membership id
+ * overlays every content type. Download is disabled on <video>/<audio>
+ * via `controlsList="nodownload"` and blocked from the right-click menu.
  */
 export default function ModulePlayer() {
-  const { id, moduleId } = useParams();
+  const { id: programId, moduleId } = useParams();
   const nav = useNavigate();
   const { user } = useAuth();
-  const program = PROGRAMS.find((p) => p.id === id);
-  const module = (MODULES_BY_PROGRAM[id] || []).find((m) => m.id === moduleId);
-  const [playing, setPlaying] = useState(false);
 
-  if (!module || !program) {
-    return <div className="px-5 pt-10 text-center text-muted-foreground">Module not found</div>;
+  const [state, setState] = useState({ loading: true, program: null, module: null, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [{ data: program }, { data: module }] = await Promise.all([
+          api.get(`/programs/${programId}`),
+          api.get(`/modules/${moduleId}`),
+        ]);
+        if (cancelled) return;
+        if (module.program_id !== programId) {
+          setState({ loading: false, program, module: null, error: "Module doesn't belong to this program." });
+          return;
+        }
+        setState({ loading: false, program, module, error: null });
+      } catch (e) {
+        if (cancelled) return;
+        const msg = formatApiError(e, "Couldn't load this module.");
+        setState({ loading: false, program: null, module: null, error: msg });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [programId, moduleId]);
+
+  const goBack = () => {
+    if (window.history.length > 1) nav(-1);
+    else nav(`/app/programs/${programId}`);
+  };
+
+  if (state.loading) {
+    return (
+      <div className="grid min-h-[60vh] place-items-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
-  if (module.type === "assessment") {
-    // Route to quiz
-    nav(`/app/programs/${id}/assessment/${moduleId}`, { replace: true });
-    return null;
+  if (state.error) {
+    return (
+      <div className="rw-page space-y-4 text-center">
+        <button
+          onClick={goBack}
+          className="mx-auto inline-flex items-center gap-1 text-sm text-muted-foreground"
+          data-testid={TID.playerBack}
+        >
+          <ChevronLeft className="h-4 w-4" /> Back
+        </button>
+        <p className="rw-serif text-2xl text-red-800">{state.error}</p>
+        <p className="text-sm text-muted-foreground">
+          If this looks wrong, refresh the page or contact support.
+        </p>
+      </div>
+    );
   }
 
-  const isVideo = module.type === "video";
-  const isPDF = module.type === "pdf";
-  const watermark = `${user?.full_name} · ${user?.membership_id}`;
+  const { program, module } = state;
+  const watermark = user
+    ? `${user.full_name || "Learner"} · ${user.membership_id || ""}`
+    : "";
+
+  // Prefer video → audio → pdf. Fall back to "no media" state.
+  const hasVideo = !!module.video_url;
+  const hasAudio = !hasVideo && !!module.audio_url;
+  const hasPDF = !hasVideo && !hasAudio && !!module.pdf_url;
+  const hasAny = hasVideo || hasAudio || hasPDF || module.assignment;
+
+  const commonHeader = (
+    <div className="flex items-center justify-between px-5 pt-5">
+      <button
+        onClick={goBack}
+        className="grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white"
+        data-testid={TID.playerBack}
+      >
+        <ChevronLeft className="h-5 w-5" />
+      </button>
+      <div className="text-xs text-white/70">
+        {hasVideo && "Streaming · No download"}
+        {hasAudio && "Audio · No download"}
+        {hasPDF && "PDF · View only"}
+        {!hasVideo && !hasAudio && !hasPDF && "Module content"}
+      </div>
+      <div className="h-10 w-10" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-white">
-      {isPDF ? (
-        <PDFView title={module.name} program={program} module={module} watermark={watermark} nav={nav} />
-      ) : (
-        <div className="rw-player-bg text-white">
-          <div className="flex items-center justify-between px-5 pt-6">
-            <button
-              onClick={() => nav(-1)}
-              className="grid h-10 w-10 place-items-center rounded-full bg-white/15"
-              data-testid={TID.playerBack}
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <div className="text-xs text-white/70">
-              {isVideo ? "Streaming · No download" : "Meditation audio"}
-            </div>
-            <div className="h-10 w-10" />
-          </div>
+    <div className="min-h-screen bg-neutral-950 text-white" data-testid="module-player">
+      {commonHeader}
 
-          {/* Poster / album art */}
-          <div className="mx-5 mt-4 aspect-[4/5] overflow-hidden rounded-3xl relative">
-            <img src={program.banner} alt="" className="h-full w-full object-cover" />
-            <div className="absolute inset-0 bg-black/30" />
-            {/* watermark */}
-            <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 text-[10px] font-medium text-white/45">
-              <span>{watermark}</span>
-              <span className="self-end">{watermark}</span>
-            </div>
-            {/* play overlay */}
-            <button
-              onClick={() => setPlaying((p) => !p)}
-              className="absolute inset-0 grid place-items-center"
-              data-testid={TID.playerPlay}
-            >
-              <span className="grid h-20 w-20 place-items-center rounded-full bg-white/90 text-[hsl(var(--rw-royal))] shadow-2xl">
-                {playing ? <Pause className="h-8 w-8 fill-current" /> : <Play className="h-8 w-8 fill-current translate-x-0.5" />}
-              </span>
-            </button>
-          </div>
-
-          <div className="px-5 pb-8 pt-6">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-white/60">
-              Module {module.module_number} · {program.name}
-            </p>
-            <h1 className="mt-1 rw-serif text-3xl">{module.name}</h1>
-
-            {/* progress bar (mock) */}
-            <div className="mt-6">
-              <div className="relative h-1.5 rounded-full bg-white/20">
-                <div className="absolute inset-y-0 left-0 rounded-full bg-[hsl(var(--rw-gold))]" style={{ width: playing ? "48%" : "22%" }} />
-              </div>
-              <div className="mt-2 flex justify-between text-[10px] text-white/60">
-                <span>{playing ? "10:15" : "04:38"}</span>
-                <span>{module.duration_min ? `${module.duration_min}:00` : "22:00"}</span>
-              </div>
-            </div>
-
-            {/* controls */}
-            <div className="mt-6 flex items-center justify-center gap-6">
-              <button className="grid h-12 w-12 place-items-center rounded-full bg-white/10">
-                <Rewind className="h-5 w-5" />
-              </button>
-              <button
-                onClick={() => setPlaying((p) => !p)}
-                className="grid h-16 w-16 place-items-center rounded-full bg-white text-[hsl(var(--rw-royal))] shadow-xl"
-              >
-                {playing ? <Pause className="h-6 w-6 fill-current" /> : <Play className="h-6 w-6 fill-current translate-x-0.5" />}
-              </button>
-              <button className="grid h-12 w-12 place-items-center rounded-full bg-white/10">
-                <FastForward className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="mt-6 flex items-center justify-center gap-2 text-[11px] text-white/60">
-              <Volume2 className="h-3 w-3" /> Stream quality auto · Downloads disabled
-            </div>
-          </div>
+      <div className="mx-5 mt-5 space-y-6">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.3em] text-white/60">
+            Module {module.module_number} · {program.name}
+          </p>
+          <h1 className="mt-1 rw-serif text-3xl">{module.name}</h1>
+          {module.description && (
+            <p className="mt-2 text-sm text-white/70">{module.description}</p>
+          )}
         </div>
-      )}
+
+        {hasVideo && (
+          <MediaBox watermark={watermark}>
+            <video
+              key={module.video_url}
+              controls
+              controlsList="nodownload noplaybackrate"
+              disablePictureInPicture
+              onContextMenu={(e) => e.preventDefault()}
+              className="h-full w-full bg-black"
+              data-testid="module-video"
+              src={module.video_url}
+            >
+              Your browser doesn't support HTML5 video.
+            </video>
+          </MediaBox>
+        )}
+
+        {hasAudio && (
+          <AudioBox module={module} watermark={watermark} />
+        )}
+
+        {hasPDF && (
+          <div className="rounded-2xl bg-white">
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-0 grid place-items-center opacity-10">
+                <span className="rotate-[-20deg] rw-serif text-3xl text-neutral-900">
+                  {watermark}
+                </span>
+              </div>
+              {/* Google-viewer-style inline iframe. Watermark sits behind. */}
+              <iframe
+                title={module.name}
+                src={`${module.pdf_url}#toolbar=0&navpanes=0`}
+                className="h-[75vh] w-full rounded-2xl"
+                data-testid="module-pdf"
+              />
+            </div>
+            <p className="p-3 text-center text-[11px] text-neutral-500">
+              View only · downloads and screenshots disabled
+            </p>
+          </div>
+        )}
+
+        {!hasAny && (
+          <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-8 text-center text-white/70">
+            <p className="rw-serif text-xl">No media attached yet</p>
+            <p className="mt-1 text-sm">
+              The admin hasn't uploaded audio, video, or a PDF for this module.
+              Please check back soon.
+            </p>
+          </div>
+        )}
+
+        {module.assignment && (
+          <div className="rounded-2xl bg-white/5 p-5">
+            <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/60">
+              <FileText className="h-3.5 w-3.5" /> Assignment
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/90">
+              {module.assignment}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="h-16" />
     </div>
   );
 }
 
-function PDFView({ title, program, module, watermark, nav }) {
+function MediaBox({ watermark, children }) {
   return (
-    <div className="min-h-screen bg-[hsl(var(--rw-off-white))] pb-8">
-      <div className="flex items-center gap-3 border-b bg-white px-5 py-3" style={{ borderColor: "hsl(var(--rw-grey-100))" }}>
-        <button onClick={() => nav(-1)} className="grid h-9 w-9 place-items-center rounded-full hover:bg-[hsl(var(--rw-grey-50))]" data-testid={TID.playerBack}>
-          <ChevronLeft className="h-5 w-5 text-[hsl(var(--rw-royal-deep))]" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] uppercase tracking-widest text-muted-foreground">PDF · {module.pages} pages</p>
-          <h1 className="truncate rw-serif text-xl">{title}</h1>
-        </div>
-        <span className="rw-chip rw-chip-grey">View only</span>
+    <div className="relative overflow-hidden rounded-2xl bg-black">
+      {children}
+      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3 text-[10px] font-medium text-white/40">
+        <span>{watermark}</span>
+        <span className="self-end">{watermark}</span>
       </div>
+    </div>
+  );
+}
 
-      <div className="mx-5 mt-4 relative rw-card overflow-hidden">
-        {/* fake page */}
-        <div className="relative p-8 leading-relaxed">
-          <div className="pointer-events-none absolute inset-0 grid place-items-center opacity-[0.06] rotate-[-24deg]">
-            <span className="rw-serif text-4xl">{watermark}</span>
-          </div>
-          <p className="rw-eyebrow">Chapter 1</p>
-          <h2 className="mt-2 rw-serif text-3xl">{module.name}</h2>
-          <p className="mt-4 text-sm text-muted-foreground">
-            (Companion Notes preview) Peace is not the absence of sound. It is the
-            practiced return to the still centre inside the noise.
-          </p>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Each morning, sit for one long breath. Feel the exhale reach further
-            than the inhale. Notice the pause. That pause is your first teacher.
-          </p>
-          <p className="mt-3 text-sm text-muted-foreground">
-            The workbook that follows is a set of small experiments — 4 minute
-            practices, one for each week. Do not chase results. Show up daily,
-            and let the practice arrive on its own schedule.
-          </p>
-          <div className="mt-8 flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>{watermark}</span>
-            <span>Page 1 / {module.pages}</span>
-          </div>
-        </div>
+function AudioBox({ module, watermark }) {
+  const audioRef = useRef(null);
+  return (
+    <div className="rounded-2xl bg-gradient-to-br from-indigo-900 to-black p-5">
+      <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/60">
+        <Music className="h-3.5 w-3.5" /> Audio
       </div>
-
-      <p className="mt-4 text-center text-[11px] text-muted-foreground">
-        Screenshots &amp; downloads disabled for content security.
-      </p>
+      <div className="relative">
+        <audio
+          ref={audioRef}
+          src={module.audio_url}
+          controls
+          controlsList="nodownload noplaybackrate"
+          onContextMenu={(e) => e.preventDefault()}
+          className="w-full"
+          data-testid="module-audio"
+        >
+          Your browser doesn't support HTML5 audio.
+        </audio>
+      </div>
+      <p className="mt-3 text-[10px] text-white/40">{watermark}</p>
     </div>
   );
 }
