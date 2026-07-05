@@ -1,0 +1,49 @@
+# RIYORA WELLNESS — production stack
+# ------------------------------------------------------------------
+# Two containers only: FastAPI backend + React PWA (nginx).
+# MongoDB is remote (Atlas) — no Mongo container needed.
+# Host nginx (on the VPS) handles SSL + subdomain routing.
+#
+# Deploy:  docker compose up -d --build
+# Logs:    docker compose logs -f
+# Update:  git pull && docker compose up -d --build
+# ------------------------------------------------------------------
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: riyora-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      # Bound to loopback — host nginx forwards api.riyorawellness.com here.
+      - "127.0.0.1:8001:8001"
+    volumes:
+      # Persist uploaded QR screenshots + certificates across container restarts.
+      - ./backend/uploads:/app/uploads
+    networks:
+      - riyora
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Consumed by CRA at build time — must be the PUBLIC api URL.
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}
+    container_name: riyora-frontend
+    restart: unless-stopped
+    ports:
+      # Bound to loopback — host nginx forwards app.riyorawellness.com here.
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - backend
+    networks:
+      - riyora
+
+networks:
+  riyora:
+    driver: bridge
