@@ -227,8 +227,9 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Backend**: `PUT /api/modules/admin/{id}` now enforces (program_id, module_number) uniqueness on update — matches the check that create already had — so admin edits can't create duplicate module numbers within a program.
 - **Tests**: `/app/backend/tests/test_iter21_programs_media.py` — 24/24 PASS. Frontend E2E green. Report `/app/test_reports/iteration_21.json`. Two follow-on privilege fixes verified by curl.
 
-### Remaining code-review notes (not launch blockers, hardening backlog)
-- Upload writes file to disk before DB insert → orphan file if Mongo write fails. Trivial fix: reorder.
-- `AdminPrograms.jsx` is 634 lines; `MediaField` should move to `/components/MediaField.jsx` for reuse.
-- Uploads served via `/api/uploads/{id}` are public (URL is opaque UUID). Fine for images/PDFs, less so for paid module video/audio — future signed-URL layer needed.
+## Delivered on 2026-02 (Bug fix — Home cards dead click)
+- **Root cause**: `Home.jsx` rendered "Inner Peace" continue-learning card and "Featured program" card from `PROGRAMS` mock data with hardcoded slug IDs (`"inner-peace"`, `"level-1"`) that don't exist in the real DB. Clicking either navigated to `/app/programs/<slug>` where `/api/programs/<slug>` returned 404 → "Program not found" screen (and a broken image icon on the featured card because the mock thumbnail URL was pointing to a stale asset).
+- **Fix** (`/app/frontend/src/pages/Home.jsx`): now fetches three real endpoints on mount — `programsApi.list({is_subscription:true})` (top hero), `programsApi.list({is_subscription:false, sort:'level,order_index'})` (featured), and `programsApi.continueLearning()` (progress overlay). Uses `program.id` (real UUID) in the Link href, `program.thumbnail_url || banner_url || FALLBACK_THUMB` for the image, and hides each card entirely if the API returns nothing (no more dead links). Continue-learning overlay only renders when the user actually has progress.
+- Removed the unused `PROGRAMS` import from `@/mock/data`.
+- Verified: logged in as UI seed user, both hero and featured now render real DB programs and navigate to a valid ProgramDetail page.
 

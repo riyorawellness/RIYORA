@@ -8,15 +8,20 @@ import { TID } from "@/constants/testIds";
 import { activityApi } from "@/services/referrals";
 import { manualPaymentsApi } from "@/services/manualPayments";
 import { notificationsApi } from "@/services/notifications";
+import { programsApi } from "@/services/programs";
 import ActiveBanners from "@/components/ActiveBanners";
 import { formatApiError } from "@/lib/api";
 import {
   ANNOUNCEMENT,
   DAILY_QUOTE,
-  PROGRAMS,
   UPCOMING_LIVE,
   WATER_REMINDER,
 } from "@/mock/data";
+
+const FALLBACK_THUMB =
+  "https://images.unsplash.com/photo-1518241353330-0f7941c2d9b5?auto=format&fit=crop&w=800&q=60";
+const FALLBACK_BANNER =
+  "https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=1400&q=60";
 
 const STATUS_COLOR = {
   green: "hsl(141 60% 42%)",
@@ -38,8 +43,9 @@ export default function Home() {
   const [logging, setLogging] = useState(false);
   const [pending, setPending] = useState([]);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
-  const innerPeace = PROGRAMS.find((p) => p.id === "inner-peace");
-  const featured = PROGRAMS.find((p) => p.id === "level-1");
+  const [subscriptionProgram, setSubscriptionProgram] = useState(null);
+  const [featured, setFeatured] = useState(null);
+  const [continueCard, setContinueCard] = useState(null);
 
   const loadMeter = async () => {
     try {
@@ -68,10 +74,30 @@ export default function Home() {
     }
   };
 
+  const loadPrograms = async () => {
+    try {
+      const [sub, others, cont] = await Promise.all([
+        programsApi
+          .list({ is_subscription: true, is_active: true, page: 1, page_size: 1, sort: "order_index" })
+          .catch(() => ({ items: [] })),
+        programsApi
+          .list({ is_subscription: false, is_active: true, page: 1, page_size: 6, sort: "level,order_index" })
+          .catch(() => ({ items: [] })),
+        programsApi.continueLearning().catch(() => null),
+      ]);
+      setSubscriptionProgram(sub?.items?.[0] || null);
+      setFeatured((others?.items || [])[0] || null);
+      setContinueCard(cont || null);
+    } catch (e) {
+      // silent
+    }
+  };
+
   useEffect(() => {
     loadMeter();
     loadPending();
     loadNotifCount();
+    loadPrograms();
     // Refresh unread every 30s so newly-broadcast admin alerts show quickly
     const t = setInterval(loadNotifCount, 30000);
     return () => clearInterval(t);
@@ -230,31 +256,65 @@ export default function Home() {
         )}
       </section>
 
-      {/* Inner Peace card */}
-      <Link to={`/app/programs/${innerPeace.id}`} className="mt-5 block rw-card overflow-hidden p-0" data-testid={TID.homeInnerPeaceCard}>
-        <div className="relative">
-          <img src={innerPeace.thumbnail} alt="" className="h-40 w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 p-4 text-white">
-            <span className="rw-chip rw-chip-gold">Subscription</span>
-            <h3 className="mt-1 rw-serif text-2xl">Inner Peace</h3>
-            <p className="text-xs text-white/80">{innerPeace.tagline}</p>
-          </div>
-          <div className="absolute right-4 top-4 grid h-11 w-11 place-items-center rounded-full bg-white/95 text-[hsl(var(--rw-royal))] shadow-lg">
-            <Play className="h-5 w-5 fill-current" />
-          </div>
-        </div>
-        <div className="flex items-center justify-between p-4">
-          <div className="text-sm">
-            <div className="font-semibold text-foreground">Continue learning</div>
-            <div className="text-xs text-muted-foreground">Module 3 · Companion Notes</div>
-          </div>
-          <div className="text-right">
-            <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Progress</div>
-            <div className="text-lg font-semibold text-[hsl(var(--rw-royal))]">{innerPeace.progress}%</div>
-          </div>
-        </div>
-      </Link>
+      {/* Continue-learning / featured subscription card */}
+      {(() => {
+        const cardProgram = continueCard?.program || subscriptionProgram;
+        if (!cardProgram) return null;
+        const thumb =
+          cardProgram.thumbnail_url ||
+          cardProgram.banner_url ||
+          FALLBACK_THUMB;
+        const progressPct = Math.round(continueCard?.progress?.percentage || 0);
+        const currentModule = continueCard?.current_module;
+        const hasContinue = !!continueCard;
+        const chipLabel = cardProgram.is_subscription
+          ? "Subscription"
+          : cardProgram.level != null
+          ? `Level ${cardProgram.level}`
+          : "Program";
+        return (
+          <Link
+            to={`/app/programs/${cardProgram.id}`}
+            className="mt-5 block rw-card overflow-hidden p-0"
+            data-testid={TID.homeInnerPeaceCard}
+          >
+            <div className="relative">
+              <img src={thumb} alt="" className="h-40 w-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 p-4 text-white">
+                <span className="rw-chip rw-chip-gold">{chipLabel}</span>
+                <h3 className="mt-1 rw-serif text-2xl">{cardProgram.name}</h3>
+                <p className="text-xs text-white/80">
+                  {cardProgram.short_description || cardProgram.description || ""}
+                </p>
+              </div>
+              <div className="absolute right-4 top-4 grid h-11 w-11 place-items-center rounded-full bg-white/95 text-[hsl(var(--rw-royal))] shadow-lg">
+                <Play className="h-5 w-5 fill-current" />
+              </div>
+            </div>
+            {hasContinue && (
+              <div className="flex items-center justify-between p-4">
+                <div className="text-sm">
+                  <div className="font-semibold text-foreground">Continue learning</div>
+                  <div className="text-xs text-muted-foreground">
+                    {currentModule
+                      ? `Module ${currentModule.module_number} · ${currentModule.name}`
+                      : "Resume where you left off"}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                    Progress
+                  </div>
+                  <div className="text-lg font-semibold text-[hsl(var(--rw-royal))]">
+                    {progressPct}%
+                  </div>
+                </div>
+              </div>
+            )}
+          </Link>
+        );
+      })()}
 
       {/* quote + water */}
       <div className="mt-5 grid grid-cols-2 gap-3">
@@ -307,20 +367,30 @@ export default function Home() {
       </section>
 
       {/* featured */}
-      <section className="mt-5" data-testid={TID.homeFeaturedProgram}>
-        <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="rw-serif text-2xl">Featured program</h2>
-          <Link to="/app/programs" className="text-xs font-semibold text-[hsl(var(--rw-royal))]">See all</Link>
-        </div>
-        <Link to={`/app/programs/${featured.id}`} className="block rw-card overflow-hidden p-0">
-          <img src={featured.thumbnail} alt="" className="h-36 w-full object-cover" />
-          <div className="p-4">
-            <p className="rw-eyebrow">Level {featured.level}</p>
-            <h3 className="mt-1 rw-serif text-xl">{featured.name}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{featured.tagline}</p>
+      {featured && (
+        <section className="mt-5" data-testid={TID.homeFeaturedProgram}>
+          <div className="mb-2 flex items-baseline justify-between">
+            <h2 className="rw-serif text-2xl">Featured program</h2>
+            <Link to="/app/programs" className="text-xs font-semibold text-[hsl(var(--rw-royal))]">See all</Link>
           </div>
-        </Link>
-      </section>
+          <Link to={`/app/programs/${featured.id}`} className="block rw-card overflow-hidden p-0">
+            <img
+              src={featured.thumbnail_url || featured.banner_url || FALLBACK_BANNER}
+              alt=""
+              className="h-36 w-full object-cover"
+            />
+            <div className="p-4">
+              <p className="rw-eyebrow">
+                {featured.level != null ? `Level ${featured.level}` : "Program"}
+              </p>
+              <h3 className="mt-1 rw-serif text-xl">{featured.name}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {featured.short_description || featured.description || ""}
+              </p>
+            </div>
+          </Link>
+        </section>
+      )}
     </div>
   );
 }
