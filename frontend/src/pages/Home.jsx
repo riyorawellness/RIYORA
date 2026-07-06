@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Bell, Calendar, Clock, Droplet, HelpCircle, Play, Sparkles, PlusCircle } from "lucide-react";
+import { Bell, Clock, HelpCircle, Play, PlusCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import Logo from "@/components/Logo";
@@ -11,12 +11,6 @@ import { notificationsApi } from "@/services/notifications";
 import { programsApi } from "@/services/programs";
 import ActiveBanners from "@/components/ActiveBanners";
 import { formatApiError } from "@/lib/api";
-import {
-  ANNOUNCEMENT,
-  DAILY_QUOTE,
-  UPCOMING_LIVE,
-  WATER_REMINDER,
-} from "@/mock/data";
 
 const FALLBACK_THUMB =
   "https://images.unsplash.com/photo-1518241353330-0f7941c2d9b5?auto=format&fit=crop&w=800&q=60";
@@ -315,56 +309,6 @@ export default function Home() {
           </Link>
         );
       })()}
-
-      {/* quote + water */}
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <div className="rw-card p-4" data-testid={TID.homeDailyQuote}>
-          <p className="rw-eyebrow">Daily quote</p>
-          <p className="mt-2 rw-serif text-base leading-snug">“{DAILY_QUOTE.quote}”</p>
-          <p className="mt-2 text-[11px] text-muted-foreground">{DAILY_QUOTE.author}</p>
-        </div>
-        <div className="rw-card p-4" data-testid={TID.homeWaterReminder}>
-          <p className="rw-eyebrow">Water reminder</p>
-          <div className="mt-3 flex items-center gap-1">
-            {Array.from({ length: WATER_REMINDER.glasses_target }).map((_, i) => (
-              <Droplet
-                key={i}
-                className={`h-4 w-4 ${
-                  i < WATER_REMINDER.glasses_done
-                    ? "fill-[hsl(var(--rw-sky))] text-[hsl(var(--rw-sky))]"
-                    : "text-[hsl(var(--rw-grey-200))]"
-                }`}
-              />
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">{WATER_REMINDER.glasses_done} / {WATER_REMINDER.glasses_target} glasses</p>
-        </div>
-      </div>
-
-      {/* upcoming live */}
-      <section className="mt-5 rw-card overflow-hidden p-0" data-testid={TID.homeUpcomingLive}>
-        <img src={UPCOMING_LIVE.cover} alt="" className="h-32 w-full object-cover" />
-        <div className="p-4">
-          <div className="flex items-center gap-2">
-            <span className="rw-chip rw-chip-sky"><Calendar className="h-3 w-3" /> Upcoming live</span>
-          </div>
-          <h3 className="mt-2 rw-serif text-xl">{UPCOMING_LIVE.title}</h3>
-          <p className="text-xs text-muted-foreground">{UPCOMING_LIVE.starts_at} · {UPCOMING_LIVE.host}</p>
-        </div>
-      </section>
-
-      {/* announcement */}
-      <section className="mt-5 flex items-start gap-3 rw-card p-4" data-testid={TID.homeAnnouncement}>
-        <div className="grid h-10 w-10 place-items-center rounded-full bg-[hsl(var(--rw-gold-soft))] text-[hsl(35_60%_38%)]">
-          <Sparkles className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="rw-eyebrow">Announcement</p>
-          <p className="mt-1 text-sm font-semibold">{ANNOUNCEMENT.title}</p>
-          <p className="text-xs text-muted-foreground">{ANNOUNCEMENT.body}</p>
-        </div>
-        <span className="whitespace-nowrap text-[10px] text-muted-foreground">{ANNOUNCEMENT.when}</span>
-      </section>
 
       {/* featured */}
       {featured && (
