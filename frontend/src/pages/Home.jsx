@@ -21,13 +21,15 @@ const STATUS_COLOR = {
   green: "hsl(141 60% 42%)",
   yellow: "hsl(42 78% 55%)",
   red: "hsl(356 78% 55%)",
+  no_plan: "hsl(220 10% 60%)",
   no_subscription: "hsl(220 10% 60%)",
 };
 const STATUS_LABEL = {
   green: "Active",
-  yellow: "Grace",
+  yellow: "Active · Grace",
   red: "Inactive",
-  no_subscription: "No subscription",
+  no_plan: "No active plan",
+  no_subscription: "No active plan",
 };
 
 export default function Home() {
@@ -206,6 +208,40 @@ export default function Home() {
         </section>
       )}
 
+      {/* Account inactive banner (must play 4 sessions to reactivate) */}
+      {meter && (meter.status === "red" || meter.status === "no_plan" || meter.status === "no_subscription") && (
+        <section
+          className="mt-4 rw-card overflow-hidden border-2 border-red-300 bg-red-50 p-0"
+          data-testid="home-inactive-banner"
+        >
+          <div className="flex items-center gap-2 border-b border-red-200 bg-red-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-widest text-red-800">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+            Account inactive
+          </div>
+          <div className="p-4">
+            <p className="rw-serif text-lg text-red-900">
+              {meter.status === "red"
+                ? "You missed your last activity cycle."
+                : "You don't have any active plan yet."}
+            </p>
+            <p className="mt-1 text-xs text-red-800/80">
+              {meter.status === "red"
+                ? `Complete ${meter.required} module sessions in the next ${meter.days_left ?? 30} days to reactivate. Referral rewards resume automatically.`
+                : "Purchase any program (or subscribe) and complete 4 module sessions per 30-day cycle to earn referral rewards."}
+            </p>
+            <div className="mt-3">
+              <Link
+                to="/app/programs"
+                className="inline-block rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white"
+                data-testid="home-inactive-cta"
+              >
+                {meter.status === "red" ? "Play a session" : "Browse programs"}
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* activity meter */}
       <section className="mt-5 rw-card p-5" data-testid={TID.homeActivityMeter}>
         <div className="flex items-center gap-4">
@@ -223,7 +259,7 @@ export default function Home() {
             <p className="text-xs text-muted-foreground">
               {meter?.cycle_start
                 ? `${formatDate(meter.cycle_start)} → ${formatDate(meter.cycle_end)}`
-                : "No active Inner Peace subscription"}
+                : "Purchase or subscribe to start your activity cycle"}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {status === "green" ? (
@@ -237,7 +273,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-        {meter && meter.status !== "no_subscription" && (
+        {meter && meter.has_active_plan && (
           <button
             onClick={logSession}
             disabled={logging || completed >= required}

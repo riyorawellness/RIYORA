@@ -83,7 +83,7 @@ class ActivityMeter(BaseModel):
     completed: int = 0
     required: int = 4
     remaining: int = 4
-    status: Literal["green", "yellow", "red", "no_subscription"] = "no_subscription"
+    status: Literal["green", "yellow", "red", "no_plan", "no_subscription"] = "no_plan"
     subscription_id: Optional[str] = None
     program_id: Optional[str] = None
     days_left: Optional[int] = None

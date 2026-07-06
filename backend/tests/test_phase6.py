@@ -223,7 +223,9 @@ class TestActivityMeter:
         r = requests.get(f"{API}/activity/meter", headers=u["headers"])
         assert r.status_code == 200
         m = r.json()
-        assert m["status"] == "no_subscription"
+        # New rule (2026-02): status is "no_plan" when user has no active purchase.
+        # Old alias "no_subscription" is kept in the Literal for backward compat.
+        assert m["status"] in ("no_plan", "no_subscription")
         assert m["completed"] == 0
         assert m["required"] == 4
         assert m["remaining"] == 4
@@ -313,7 +315,10 @@ class TestAutoLogModule:
         auto_rows = [s for s in sess["items"] if s.get("source") == "module_complete"]
         assert len(auto_rows) >= 1
 
-    def test_non_subscription_module_complete_no_session(self, admin_h, cat):
+    def test_non_subscription_module_complete_now_logs_session(self, admin_h, cat):
+        """New rule (2026-02): completing a module of ANY purchased program
+        (subscription OR one-time still within validity) auto-logs an
+        activity session. Previously only subscription programs did."""
         prog = _create_program(
             admin_h, cat["id"], price=100, validity_days=30,
             is_subscription=False, level=None, name_prefix="NONSUBMOD",
@@ -340,8 +345,9 @@ class TestAutoLogModule:
         )
         assert rc.status_code == 200, rc.text
         sess = requests.get(f"{API}/activity/sessions/me", headers=u["headers"]).json()
-        # No sessions should have been auto-logged (user never subscribed)
-        assert len(sess["items"]) == 0
+        # NEW rule: one-time program purchase also counts towards activity.
+        auto_rows = [s for s in sess["items"] if s.get("source") == "module_complete"]
+        assert len(auto_rows) >= 1
 
 
 # ============ 4. Referrals dashboard + team + QR ============================

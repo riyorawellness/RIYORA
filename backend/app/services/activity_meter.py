@@ -1,20 +1,24 @@
-"""Activity Meter + Subscription Cycle engine.
+"""Activity Meter — rolling 30-day cycle from user registration.
 
-Cycle = user's most recent ACTIVE Inner Peace subscription, from purchase_date
-→ expiry_date. Activity requirement (default 4 sessions) is configurable via
-`app_settings.activity_sessions_required`.
-
-`log_session()` inserts a row into `activity_sessions`. `get_meter()` computes
-completed/remaining/status. Statuses:
-  green   — subscription active AND required sessions completed
-  yellow  — subscription active, sessions NOT yet completed, still within cycle
-  red     — subscription expired OR beyond grace period
-  no_subscription — user has never bought Inner Peace
+New rules (2026-02):
+- User must complete N sessions (default 4) in every rolling 30-day cycle to
+  stay "active". Cycle #0 starts at registration; each subsequent cycle rolls
+  30 days later.
+- A session = completing ANY module of ANY program the user has purchased
+  (subscription OR one-time) that's still within validity. Auto-logged from
+  `mark_module_completed()` in program_engine.
+- Statuses:
+    green   — required sessions met in current cycle
+    yellow  — grace period (first-ever cycle, not yet met)
+    red     — cycle not first AND requirement not met -> account inactive
+    no_plan — user has no active purchase at all
+- Commission eligibility (sponsor payouts) fires only on `green`.
+- Home page shows a reactivation banner on `red` / `no_plan`.
 """
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -23,13 +27,24 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+CYCLE_DAYS = 30
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _iso() -> str:
-    return _now().isoformat()
+def _iso(dt: Optional[datetime] = None) -> str:
+    return (dt or _now()).isoformat()
+
+
+def _parse_iso(s: Optional[str]) -> Optional[datetime]:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
 
 
 async def _get_int_setting(db: AsyncIOMotorDatabase, key: str, fallback: int) -> int:
@@ -42,81 +57,94 @@ async def _get_int_setting(db: AsyncIOMotorDatabase, key: str, fallback: int) ->
         return fallback
 
 
-async def find_inner_peace_program(db: AsyncIOMotorDatabase) -> Optional[dict]:
-    """Return the Inner Peace program document (any subscription program)."""
-    prog = await db.programs.find_one(
-        {"is_subscription": True, "deleted_at": None, "is_active": True}
+async def _get_user_registered_at(
+    db: AsyncIOMotorDatabase, user_membership_id: str
+) -> Optional[datetime]:
+    user = await db.users.find_one(
+        {"membership_id": user_membership_id, "deleted_at": None},
+        {"created_at": 1},
     )
-    if prog:
-        prog.pop("_id", None)
-    return prog
+    return _parse_iso((user or {}).get("created_at"))
 
 
-async def get_active_cycle(db: AsyncIOMotorDatabase, user_membership_id: str) -> Optional[dict]:
-    """Return the current Inner Peace subscription cycle for the user.
-
-    Looks up ANY active subscription-sourced purchase (not restricted to a
-    single "Inner Peace" program id), since admin may have multiple
-    subscription programs.
-
-    Returns { subscription_id, purchase_id, program_id, cycle_start, cycle_end } or None.
-    """
+async def has_any_active_purchase(
+    db: AsyncIOMotorDatabase, user_membership_id: str
+) -> bool:
+    """True if the user owns ANY program (subscription or one-time) still
+    within its validity window."""
     now_iso = _iso()
-    # Fetch newest active purchase where the linked program is a subscription.
-    cursor = (
-        db.program_purchases.find(
-            {
-                "user_membership_id": user_membership_id,
-                "status": "active",
-                "deleted_at": None,
-                "$or": [
-                    {"source": "subscription_mock"},
-                    {"subscription_id": {"$ne": None}},
-                ],
-            }
-        )
-        .sort("purchase_date", -1)
-    )
-    async for p in cursor:
-        p.pop("_id", None)
-        if p.get("expiry_date") and p["expiry_date"] < now_iso:
-            continue
-        # Confirm the linked program is truly a subscription (defensive).
-        prog = await db.programs.find_one(
-            {"id": p.get("program_id"), "deleted_at": None}, {"is_subscription": 1}
-        )
-        if not prog or not prog.get("is_subscription"):
-            continue
-        return {
-            "subscription_id": p.get("subscription_id") or p.get("id"),
-            "purchase_id": p.get("id"),
-            "program_id": p.get("program_id"),
-            "cycle_start": p.get("purchase_date"),
-            "cycle_end": p.get("expiry_date"),
+    cursor = db.program_purchases.find(
+        {
+            "user_membership_id": user_membership_id,
+            "status": "active",
+            "deleted_at": None,
         }
-    return None
+    ).limit(50)
+    async for p in cursor:
+        exp = p.get("expiry_date")
+        if not exp or exp > now_iso:
+            return True
+    return False
+
+
+def compute_cycle(registered_at: datetime, at: Optional[datetime] = None) -> dict:
+    """Given a registration timestamp, compute the rolling 30-day cycle window
+    that contains `at` (defaults to now)."""
+    at = at or _now()
+    if at < registered_at:
+        at = registered_at
+    delta_days = (at - registered_at).days
+    cycle_number = delta_days // CYCLE_DAYS
+    cycle_start = registered_at + timedelta(days=cycle_number * CYCLE_DAYS)
+    cycle_end = cycle_start + timedelta(days=CYCLE_DAYS)
+    return {
+        "cycle_number": cycle_number,
+        "cycle_start": cycle_start,
+        "cycle_end": cycle_end,
+    }
+
+
+async def count_sessions_in_cycle(
+    db: AsyncIOMotorDatabase,
+    user_membership_id: str,
+    cycle_start: datetime,
+    cycle_end: datetime,
+) -> int:
+    return await db.activity_sessions.count_documents(
+        {
+            "user_membership_id": user_membership_id,
+            "completed_at": {
+                "$gte": cycle_start.isoformat(),
+                "$lt": cycle_end.isoformat(),
+            },
+            "deleted_at": None,
+        }
+    )
 
 
 async def log_session(
     db: AsyncIOMotorDatabase,
     user_membership_id: str,
     source: str = "manual",
+    program_id: Optional[str] = None,
     module_id: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> dict:
-    """Log an Inner Peace session. Idempotent for same-day 'module_complete' from
-    the same module — a user can't accidentally double-count a module."""
-    cycle = await get_active_cycle(db, user_membership_id)
-    if not cycle:
-        raise ValueError("No active Inner Peace subscription cycle")
+    """Log a module-completion session. The user must own ANY active
+    purchase; the specific program doesn't matter for the counter.
+
+    Idempotent for `module_complete` events on the same module — a completed
+    module contributes exactly ONE session towards the meter, regardless of
+    how many times the user re-visits it.
+    """
+    if not await has_any_active_purchase(db, user_membership_id):
+        raise ValueError("No active plan or subscription")
 
     now = _now()
-    # Idempotency: if module_id set and already logged today for this cycle → return existing.
     if module_id:
         existing = await db.activity_sessions.find_one(
             {
                 "user_membership_id": user_membership_id,
-                "subscription_purchase_id": cycle["purchase_id"],
                 "module_id": module_id,
                 "deleted_at": None,
             }
@@ -128,8 +156,7 @@ async def log_session(
     doc = {
         "id": str(uuid.uuid4()),
         "user_membership_id": user_membership_id,
-        "subscription_purchase_id": cycle["purchase_id"],
-        "program_id": cycle["program_id"],
+        "program_id": program_id,
         "module_id": module_id,
         "source": source,
         "notes": notes,
@@ -143,91 +170,56 @@ async def log_session(
     return doc
 
 
-async def count_sessions_in_cycle(
-    db: AsyncIOMotorDatabase, user_membership_id: str, purchase_id: str
-) -> int:
-    return await db.activity_sessions.count_documents(
-        {
-            "user_membership_id": user_membership_id,
-            "subscription_purchase_id": purchase_id,
-            "deleted_at": None,
-        }
-    )
-
-
-async def _get_latest_subscription_purchase(
-    db: AsyncIOMotorDatabase, user_membership_id: str
-) -> Optional[dict]:
-    """Return the newest subscription-sourced purchase regardless of status.
-    Used to distinguish 'no_subscription' (never subscribed) from 'red' (expired)."""
-    async for p in (
-        db.program_purchases.find(
-            {
-                "user_membership_id": user_membership_id,
-                "deleted_at": None,
-                "$or": [
-                    {"source": "subscription_mock"},
-                    {"subscription_id": {"$ne": None}},
-                ],
-            }
-        )
-        .sort("purchase_date", -1)
-        .limit(1)
-    ):
-        p.pop("_id", None)
-        return p
-    return None
-
-
 async def get_meter(db: AsyncIOMotorDatabase, user_membership_id: str) -> dict:
-    """Return the Activity Meter payload for the given user."""
+    """Return the activity meter payload for the user."""
     required = await _get_int_setting(
         db, "activity_sessions_required", settings.ACTIVITY_SESSIONS_REQUIRED
     )
-    cycle = await get_active_cycle(db, user_membership_id)
-    if not cycle:
-        # Distinguish 'never subscribed' from 'expired'.
-        past = await _get_latest_subscription_purchase(db, user_membership_id)
-        if past:
-            return {
-                "status": "red",
-                "required": required,
-                "completed": 0,
-                "remaining": required,
-                "cycle_end": past.get("expiry_date"),
-            }
+    registered_at = await _get_user_registered_at(db, user_membership_id)
+    if not registered_at:
         return {
-            "status": "no_subscription",
+            "status": "no_plan",
             "required": required,
             "completed": 0,
             "remaining": required,
         }
-    completed = await count_sessions_in_cycle(db, user_membership_id, cycle["purchase_id"])
+
+    has_plan = await has_any_active_purchase(db, user_membership_id)
+    cycle = compute_cycle(registered_at)
+    completed = await count_sessions_in_cycle(
+        db, user_membership_id, cycle["cycle_start"], cycle["cycle_end"]
+    )
     remaining = max(0, required - completed)
-    status = "green" if completed >= required else "yellow"
-    try:
-        end = datetime.fromisoformat((cycle["cycle_end"] or "").replace("Z", "+00:00"))
-        days_left = max(0, (end - _now()).days)
-    except Exception:
-        days_left = None
+    now = _now()
+    days_left = max(0, (cycle["cycle_end"] - now).days)
+
+    if not has_plan:
+        status = "no_plan"
+    elif completed >= required:
+        status = "green"
+    elif cycle["cycle_number"] == 0:
+        status = "yellow"  # first cycle grace: user is active by default
+    else:
+        status = "red"
+
     return {
         "status": status,
         "required": required,
         "completed": completed,
         "remaining": remaining,
-        "cycle_start": cycle["cycle_start"],
-        "cycle_end": cycle["cycle_end"],
-        "subscription_id": cycle["subscription_id"],
-        "program_id": cycle["program_id"],
+        "cycle_number": cycle["cycle_number"],
+        "cycle_start": cycle["cycle_start"].isoformat(),
+        "cycle_end": cycle["cycle_end"].isoformat(),
         "days_left": days_left,
+        "has_active_plan": has_plan,
     }
 
 
 async def is_eligible_for_commission(
     db: AsyncIOMotorDatabase, user_membership_id: str
 ) -> bool:
-    """A sponsor earns commission ONLY if their Inner Peace subscription is
-    active AND they have completed the required sessions in current cycle."""
+    """A sponsor earns commission ONLY if their meter is green (i.e. active
+    plan AND required sessions completed in current cycle)."""
     meter = await get_meter(db, user_membership_id)
     return meter["status"] == "green"
 
@@ -235,38 +227,42 @@ async def is_eligible_for_commission(
 # --------- Reminders ------------------------------------------------------
 
 
-async def create_smart_reminders(db: AsyncIOMotorDatabase, user_membership_id: str) -> list[dict]:
-    """Insert notifications rows at 7d/3d/1d before cycle end + expiry day.
+async def create_smart_reminders(
+    db: AsyncIOMotorDatabase, user_membership_id: str
+) -> list[dict]:
+    """Insert notification rows at 7d/3d/1d before cycle end + expiry day.
 
     Idempotent — will not create duplicate reminder for the same cycle & offset.
     """
-    cycle = await get_active_cycle(db, user_membership_id)
-    if not cycle:
+    registered_at = await _get_user_registered_at(db, user_membership_id)
+    if not registered_at:
         return []
-    try:
-        end = datetime.fromisoformat((cycle["cycle_end"] or "").replace("Z", "+00:00"))
-    except Exception:
-        return []
-
+    cycle = compute_cycle(registered_at)
     now = _now()
-    days_left = (end - now).days
-    created = []
-    # Fetch admin-configured messages, fallback to defaults.
-    def _msg(default: str, key: str) -> str:
-        return default  # keep it simple; admin messaging templates are Phase 7
+    days_left = (cycle["cycle_end"] - now).days
+    cycle_key = f"cycle:{cycle['cycle_number']}"
 
     schedule = [
-        (7, "Your Inner Peace cycle ends in 7 days", "Complete your remaining sessions to stay active."),
-        (3, "3 days left in your cycle", "Only a few sessions away from Active status."),
-        (1, "Last day of your cycle", "One day left to stay eligible for referral rewards."),
-        (0, "Cycle ends today", "Complete your sessions before midnight to remain Active."),
+        (7, "Your activity cycle ends in 7 days",
+         "Complete your remaining sessions to stay active."),
+        (3, "3 days left in your cycle",
+         "Only a few sessions away from staying Active."),
+        (1, "Last day of your cycle",
+         "One day left to stay eligible for referral rewards."),
+        (0, "Cycle ends today",
+         "Complete your sessions before midnight to remain Active."),
     ]
 
+    created = []
     for offset, title, body in schedule:
         if days_left <= offset:
-            key = f"reminder:{cycle['purchase_id']}:{offset}"
+            key = f"reminder:{cycle_key}:{offset}"
             exists = await db.notifications.find_one(
-                {"user_membership_id": user_membership_id, "meta.key": key, "deleted_at": None}
+                {
+                    "user_membership_id": user_membership_id,
+                    "meta.key": key,
+                    "deleted_at": None,
+                }
             )
             if exists:
                 continue
@@ -278,7 +274,11 @@ async def create_smart_reminders(db: AsyncIOMotorDatabase, user_membership_id: s
                 "category": "activity",
                 "is_broadcast": False,
                 "is_read": False,
-                "meta": {"key": key, "cycle_end": cycle["cycle_end"], "purchase_id": cycle["purchase_id"]},
+                "meta": {
+                    "key": key,
+                    "cycle_end": cycle["cycle_end"].isoformat(),
+                    "cycle_number": cycle["cycle_number"],
+                },
                 "created_at": now.isoformat(),
                 "updated_at": now.isoformat(),
                 "deleted_at": None,

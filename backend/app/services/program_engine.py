@@ -214,24 +214,22 @@ async def mark_module_completed(
 
     result = await _upsert_progress(db, user_membership_id, program_id, updates, actor=user_membership_id)
 
-    # Phase 6: auto-log an Inner Peace activity session on module completion.
+    # Auto-log activity session for ANY program (subscription or one-time)
+    # on module completion. Session counts feed the rolling 30-day meter.
     try:
-        program = await db.programs.find_one(
-            {"id": program_id, "deleted_at": None}, {"is_subscription": 1}
-        )
-        if program and program.get("is_subscription"):
-            from app.services.activity_meter import log_session as _log_session
+        from app.services.activity_meter import log_session as _log_session
 
-            try:
-                await _log_session(
-                    db,
-                    user_membership_id,
-                    source="module_complete",
-                    module_id=module_id,
-                )
-            except ValueError:
-                # No active subscription cycle — skip silently.
-                pass
+        try:
+            await _log_session(
+                db,
+                user_membership_id,
+                source="module_complete",
+                program_id=program_id,
+                module_id=module_id,
+            )
+        except ValueError:
+            # User has no active purchase — skip silently.
+            pass
     except Exception:  # noqa: BLE001
         pass
 

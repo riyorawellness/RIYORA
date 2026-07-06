@@ -227,6 +227,24 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Backend**: `PUT /api/modules/admin/{id}` now enforces (program_id, module_number) uniqueness on update — matches the check that create already had — so admin edits can't create duplicate module numbers within a program.
 - **Tests**: `/app/backend/tests/test_iter21_programs_media.py` — 24/24 PASS. Frontend E2E green. Report `/app/test_reports/iteration_21.json`. Two follow-on privilege fixes verified by curl.
 
+## Delivered on 2026-02 (Activity Meter v2 — universal 30-day cycle)
+- **New business rule**: Account "Active" now requires (a) any purchased program (subscription OR one-time still within validity) AND (b) 4 completed module sessions in the current rolling 30-day cycle. Cycle starts at user registration, rolls every 30 days.
+- **Backend** (`services/activity_meter.py`): full rewrite.
+  - `compute_cycle(registered_at, now)` returns the current 30-day window (cycle_number, start, end).
+  - `has_any_active_purchase()` — replaces subscription-only check with "any active purchase within validity".
+  - `log_session()` no longer requires a subscription; any user with an active plan can log. Idempotent by `module_id` across sources.
+  - `get_meter()` returns: `status` (green | yellow | red | no_plan), `completed`, `remaining`, `required`, `cycle_number`, `cycle_start`, `cycle_end`, `days_left`, `has_active_plan`.
+  - Statuses: `no_plan` = never purchased or all expired; `yellow` = first cycle grace (auto-active); `green` = 4 sessions met (locks for cycle); `red` = past cycles with < 4.
+  - `is_eligible_for_commission()` still fires on `green` only.
+  - Legacy `no_subscription` kept in Pydantic Literal for backward compatibility.
+- **Backend** (`services/program_engine.mark_module_completed`): auto-log now fires for ANY purchased program on module completion (not just subscription).
+- **Frontend** (`pages/Home.jsx`):
+  - New red "Account Inactive" banner with reactivation CTA — shown when `status ∈ {red, no_plan}`.
+  - Meter card now reads "Purchase or subscribe to start your activity cycle" for `no_plan` and shows cycle window when active.
+  - Status chip: "Active" / "Active · Grace" / "Inactive" / "No active plan".
+  - "Mark today's session" button gated on `has_active_plan` (no longer subscription-only).
+- **Tests**: `/app/backend/tests/test_activity_meter_v2.py` (6/6 PASS) + regression `/app/backend/tests/test_phase6.py` activity classes (7/7 PASS). Two phase6 test expectations were updated to reflect the new business rule (module completion on one-time programs now logs a session; new status name).
+
 ## Delivered on 2026-02 (Home cleanup + Admin "Feature on Home" toggle)
 - **Home simplified**: removed Daily Quote, Water Reminder, Upcoming Live, and Announcement mock sections. Home now: header → banners → activity meter → continue-learning card → Featured program section.
 - **New `is_featured` field on programs**: added to `ProgramCreate` / `ProgramUpdate` models (default `false`) and `/api/programs` list filter (`?is_featured=true`). Backend fully backwards-compatible.
