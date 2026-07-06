@@ -44,6 +44,7 @@ async def list_programs(
     category_id: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
     is_subscription: bool | None = Query(default=None),
+    is_featured: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
     sort: str = Query(default="order_index,-created_at"),
@@ -60,6 +61,8 @@ async def list_programs(
         filters["is_active"] = True
     if is_subscription is not None:
         filters["is_subscription"] = is_subscription
+    if is_featured is not None:
+        filters["is_featured"] = is_featured
     return await _repo(database).list_paginated(filters, search, sort, page, page_size)
 
 

@@ -77,6 +77,7 @@ class ProgramCreate(BaseModel):
     order_index: int = 0
     is_active: bool = True
     is_subscription: bool = False
+    is_featured: bool = False
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Literal["sequential", "free"] = "sequential"
 
@@ -95,6 +96,7 @@ class ProgramUpdate(BaseModel):
     order_index: Optional[int] = None
     is_active: Optional[bool] = None
     is_subscription: Optional[bool] = None
+    is_featured: Optional[bool] = None
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Optional[Literal["sequential", "free"]] = None
 

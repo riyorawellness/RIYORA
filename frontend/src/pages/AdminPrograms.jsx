@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Star,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -55,6 +56,7 @@ const emptyForm = () => ({
   order_index: 0,
   is_active: true,
   is_subscription: false,
+  is_featured: false,
   level: 0,
   access_mode: "sequential",
 });
@@ -173,6 +175,16 @@ export default function AdminPrograms() {
     }
   };
 
+  const toggleFeatured = async (p) => {
+    try {
+      await adminApi.updateProgram(p.id, { is_featured: !p.is_featured });
+      toast.success(p.is_featured ? "Unfeatured" : "Featured on Home");
+      load();
+    } catch (e) {
+      toast.error(formatApiError(e, "Toggle failed"));
+    }
+  };
+
   const doDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -263,6 +275,9 @@ export default function AdminPrograms() {
                   {p.is_subscription && (
                     <Badge variant="outline">Subscription</Badge>
                   )}
+                  {p.is_featured && (
+                    <Badge className="bg-amber-100 text-amber-800">Featured</Badge>
+                  )}
                   {typeof p.level === "number" && p.level > 0 && (
                     <Badge variant="outline">L{p.level}</Badge>
                   )}
@@ -282,6 +297,18 @@ export default function AdminPrograms() {
                     <Layers className="mr-1 h-3.5 w-3.5" /> Modules
                   </Button>
                 </Link>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => toggleFeatured(p)}
+                  title={p.is_featured ? "Remove from Home" : "Feature on Home"}
+                  data-testid={`admin-program-featured-${p.id}`}
+                  className={p.is_featured ? "border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100" : ""}
+                >
+                  <Star
+                    className={`h-3.5 w-3.5 ${p.is_featured ? "fill-amber-500 text-amber-500" : ""}`}
+                  />
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
@@ -513,6 +540,19 @@ export default function AdminPrograms() {
               <div>
                 <div className="text-sm font-medium">Subscription program</div>
                 <div className="text-[11px] text-muted-foreground">Recurring, not one-time</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border p-3">
+              <Switch
+                checked={form.is_featured}
+                onCheckedChange={setField("is_featured")}
+                data-testid="admin-program-field-featured"
+              />
+              <div>
+                <div className="text-sm font-medium">Featured on Home</div>
+                <div className="text-[11px] text-muted-foreground">
+                  Show this program on the user Home page
+                </div>
               </div>
             </div>
           </div>

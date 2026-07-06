@@ -72,10 +72,10 @@ export default function Home() {
     try {
       const [sub, others, cont] = await Promise.all([
         programsApi
-          .list({ is_subscription: true, is_active: true, page: 1, page_size: 1, sort: "order_index" })
+          .list({ is_subscription: true, is_featured: true, is_active: true, page: 1, page_size: 1, sort: "order_index" })
           .catch(() => ({ items: [] })),
         programsApi
-          .list({ is_subscription: false, is_active: true, page: 1, page_size: 6, sort: "level,order_index" })
+          .list({ is_subscription: false, is_featured: true, is_active: true, page: 1, page_size: 6, sort: "order_index,level" })
           .catch(() => ({ items: [] })),
         programsApi.continueLearning().catch(() => null),
       ]);

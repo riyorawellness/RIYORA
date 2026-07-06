@@ -227,9 +227,10 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Backend**: `PUT /api/modules/admin/{id}` now enforces (program_id, module_number) uniqueness on update — matches the check that create already had — so admin edits can't create duplicate module numbers within a program.
 - **Tests**: `/app/backend/tests/test_iter21_programs_media.py` — 24/24 PASS. Frontend E2E green. Report `/app/test_reports/iteration_21.json`. Two follow-on privilege fixes verified by curl.
 
-## Delivered on 2026-02 (Bug fix — Home cards dead click)
-- **Root cause**: `Home.jsx` rendered "Inner Peace" continue-learning card and "Featured program" card from `PROGRAMS` mock data with hardcoded slug IDs (`"inner-peace"`, `"level-1"`) that don't exist in the real DB. Clicking either navigated to `/app/programs/<slug>` where `/api/programs/<slug>` returned 404 → "Program not found" screen (and a broken image icon on the featured card because the mock thumbnail URL was pointing to a stale asset).
-- **Fix** (`/app/frontend/src/pages/Home.jsx`): now fetches three real endpoints on mount — `programsApi.list({is_subscription:true})` (top hero), `programsApi.list({is_subscription:false, sort:'level,order_index'})` (featured), and `programsApi.continueLearning()` (progress overlay). Uses `program.id` (real UUID) in the Link href, `program.thumbnail_url || banner_url || FALLBACK_THUMB` for the image, and hides each card entirely if the API returns nothing (no more dead links). Continue-learning overlay only renders when the user actually has progress.
-- Removed the unused `PROGRAMS` import from `@/mock/data`.
-- Verified: logged in as UI seed user, both hero and featured now render real DB programs and navigate to a valid ProgramDetail page.
+## Delivered on 2026-02 (Home cleanup + Admin "Feature on Home" toggle)
+- **Home simplified**: removed Daily Quote, Water Reminder, Upcoming Live, and Announcement mock sections. Home now: header → banners → activity meter → continue-learning card → Featured program section.
+- **New `is_featured` field on programs**: added to `ProgramCreate` / `ProgramUpdate` models (default `false`) and `/api/programs` list filter (`?is_featured=true`). Backend fully backwards-compatible.
+- **Admin control**: `AdminPrograms.jsx` — new star toggle button on every row (⭐ filled amber when featured), a "Featured on Home" switch inside the create/edit dialog, and an amber "Featured" badge next to the row title. Toggle uses `PUT /api/programs/admin/{id}` with `{is_featured: bool}`.
+- **User Home wiring**: `Home.jsx` now fetches `is_featured=true, is_subscription=true` for the hero and `is_featured=true, is_subscription=false` for the Featured card. If nothing is featured, the corresponding section is hidden entirely (no dead link, no broken image). Continue-learning still takes precedence over the hero when the user has an in-progress purchase.
+- Verified: create program with `is_featured=true` → shows on Home; toggle off → hidden. Admin can hand-pick exactly which programs surface on the user Home page.
 
