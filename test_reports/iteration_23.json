@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 23 — FRONTEND-ONLY E2E launch-readiness regression per E1's request. All 15 targeted features pass (30/30 checks). New Live Integration Check page (/admin/qa/live-check) is fully wired: Razorpay + MSG91 + Recent Webhook events cards render, Create ₹1 test order returns 'MOCK · mock_ord_568738f2156e4281' inline, MSG91 dry-run shows 'Dev mode: dispatched code 424242 (no real SMS sent)' toast, and the left-rail 'Live Check' link (data-testid=admin-nav-livecheck) navigates correctly. AdminQA /admin/qa Run BRV still returns Pass/Fail matrix. AdminPrograms 'Featured on Home' + 'Payment mode' dropdown present in dialog. AdminUsers has search, red delete icon, emerald Export CSV button, per-row indigo Preview button (icon-only, data-testid=admin-user-preview-RW######). AdminSystem Backups tab has 'Create backup' btn; Danger Zone tab opens the 3-step wipe wizard (data-testid=danger-empty-open). User login (seeded RW829163 mobile 9147207437 / Passw0rd!) lands on /app/home which renders activity meter + continue learning + featured sections. All 7 user-shell pages (/home /programs /refer /team /notifications /profile /payment-history) load with no crashes or console errors. Logout goes to /welcome. PWA manifest.json + service-worker.js both serve 200.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AdminLiveCheck.jsx line 168: `Row label='Webhook URLs' value={rzp.webhook_url_hint}` — value is rendered inside a right-aligned span with font-mono text-[11px] and can visually overflow the card on narrow widths because it packs two URLs separated by ' · '. Consider `truncate` or `break-all` for defensive layout. Not blocking.",
+    "AdminLiveCheck.jsx line 234: label text says 'Send test OTP (code 424242)' — the actual code in dev mode is 123456 per test_credentials.md (OTP_DEV_MODE=true). The label's 424242 refers to the LIVE-mode SMS payload while /auth/verify-otp accepts 123456 in dev. Slightly misleading in a mock preview; add a note like '(dev flows still accept 123456)' or gate the label on sms.otp_dev_mode. Cosmetic only, no functional impact.",
+    "AdminLiveCheck.jsx line 261: `<Badge variant='secondary' data-testid='webhook-count'>{events.length}</Badge>` — Badge is not aria-labelled; a screen reader hears just the number. Minor a11y polish.",
+    "AdminUsers per-row Preview button is icon-only (`title='Preview app as this user'`) — the review request calls it 'indigo Preview button' but there is no visible text label. If you want it to be self-labelling, add sr-only text or a visible label on wider viewports. Current impl is fine but not verifiable via text-based selectors — testers must use `[data-testid^=admin-user-preview-]`.",
+    "AdminSystem Danger Zone: primary CTA is 'Empty app data' (data-testid=danger-empty-open) — the review request calls it 'wipe wizard' which is correct semantically. Naming is fine, just note the mismatch so future testing agents know to use the testid.",
+    "PreviewBanner (impersonation) not shown in this run because admin was not impersonating. Not exercised; if E1 wants coverage, seed an impersonation session and re-run."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "not tested (skipped per E1 request; 9/9 live-check pytests + 59/59 batch regression already green)",
+    "frontend": "100% (30/30 UI checks pass across Live Check, QA/BRV, Programs, Users, System/Backups+Danger, and full user shell)"
+  },
+  "test_credentials": "Admin 9999999999 / Admin@12345. User: mobile 9147207437 / Passw0rd! (RW829163, seeded in iter22, still active).",
+  "seed_data_creation": "No new seed data created this run. Live Check webhook events list shows 5 pre-existing 'payment.captured' events (seeded from earlier iterations). Left in place — they demonstrate the webhook wiring works.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Frontend E2E for launch readiness is GREEN. If E1 wants to add coverage: (a) live impersonation flow to verify PreviewBanner rendering, (b) full user register flow with dev OTP 123456 + referral RW000000 (was not repeated this iteration since seeded user already exists), (c) actual mock payment purchase flow to prove /payments/verify + purchase creation + payment-history population. Testids proven in this run: admin-live-check-page, live-check-razorpay-card, live-check-msg91-card, live-check-webhook-card, rzp-test-order-btn, rzp-test-order-result, rzp-test-order-detail, msg91-mobile-input, msg91-send-btn, webhook-count, webhook-refresh, admin-nav-livecheck, sys-tab-backups, sys-tab-danger, danger-empty-open, admin-user-preview-RW*, admin-users-export, admin-users-apply, admin-shell-logout. Two 'failures' in the raw log (Preview button, Wipe button) were selector-only issues in the test script — the actual UI is present and correct; do NOT ask E1 to fix them.",
+  "rca_of_the_issue": "N/A — no bugs found. The two initial 'FAIL' lines in the raw test output were false negatives caused by text-based selectors (`button:has-text('Preview')`, `button:has-text('Wipe')`). The real UI uses icon-only buttons with `title` attributes and different label copy ('Empty app data'). Second-pass inspection with data-testid selectors confirmed both features work: Preview buttons render one per user row (162 testids total on Users page, all admin-user-preview-RW######), and the Danger Zone wipe wizard opens a 'Confirm — step 1 of 3' AlertDialog with Cancel + 'I understand, continue' actions."
+}

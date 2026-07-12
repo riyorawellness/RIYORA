@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, NavLink, Outlet } from "react-router-dom";
-import { LogOut, LayoutDashboard, BarChart3, FileBarChart, ShieldCheck, Users, Wallet, CreditCard, QrCode, ClipboardCheck, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers, BookOpen, FolderOpen } from "lucide-react";
+import { LogOut, LayoutDashboard, BarChart3, FileBarChart, ShieldCheck, Users, Wallet, CreditCard, QrCode, ClipboardCheck, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers, BookOpen, FolderOpen, Activity } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ const NAV = [
   { to: "/admin/system", label: "System", icon: Settings2, testid: "admin-nav-system" },
   { to: "/admin/audit", label: "Audit log", icon: ScrollText, testid: "admin-nav-audit" },
   { to: "/admin/qa", label: "QA / BRV", icon: ShieldCheck, testid: "admin-nav-qa" },
+  { to: "/admin/qa/live-check", label: "Live Check", icon: Activity, testid: "admin-nav-livecheck" },
 ];
 
 /**

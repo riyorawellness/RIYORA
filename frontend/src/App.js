@@ -44,6 +44,7 @@ import AdminAuditLog from "@/pages/AdminAuditLog";
 import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminReports from "@/pages/AdminReports";
 import AdminQA from "@/pages/AdminQA";
+import AdminLiveCheck from "@/pages/AdminLiveCheck";
 import AdminPrograms from "@/pages/AdminPrograms";
 import AdminProgramModules from "@/pages/AdminProgramModules";
 import AdminMedia from "@/pages/AdminMedia";
@@ -123,6 +124,7 @@ function App() {
             <Route path="/admin/system" element={<AdminSystem />} />
             <Route path="/admin/audit" element={<AdminAuditLog />} />
             <Route path="/admin/qa" element={<AdminQA />} />
+            <Route path="/admin/qa/live-check" element={<AdminLiveCheck />} />
             <Route path="/admin/payment-settings" element={<AdminPaymentSettings />} />
             <Route path="/admin/payment-verifications" element={<AdminPendingPayments />} />
           </Route>

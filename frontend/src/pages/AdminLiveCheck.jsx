@@ -1,0 +1,296 @@
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import {
+  RefreshCw, Loader2, CheckCircle2, XCircle, PlayCircle, Send,
+  ShieldCheck, ShieldAlert, Webhook, MessageSquareText, CreditCard, Copy,
+} from "lucide-react";
+
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import api, { formatApiError } from "@/lib/api";
+
+function ModeChip({ mode }) {
+  if (mode === "live") {
+    return (
+      <Badge className="bg-green-100 text-green-700 hover:bg-green-100" data-testid="mode-live">
+        <ShieldCheck className="mr-1 h-3 w-3" /> LIVE
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" data-testid="mode-mock">
+      <ShieldAlert className="mr-1 h-3 w-3" /> {mode === "dev" ? "DEV" : "MOCK"}
+    </Badge>
+  );
+}
+
+function Row({ label, value, ok = null, mono = false, testid }) {
+  return (
+    <div className="flex items-center justify-between border-b py-2 text-sm last:border-0" data-testid={testid}>
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`text-right ${mono ? "font-mono text-[11px]" : "font-medium"}`}>
+        {ok === true && <CheckCircle2 className="mr-1 inline h-3.5 w-3.5 text-green-600" />}
+        {ok === false && <XCircle className="mr-1 inline h-3.5 w-3.5 text-red-600" />}
+        {value || <span className="text-muted-foreground">—</span>}
+      </span>
+    </div>
+  );
+}
+
+export default function AdminLiveCheck() {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [testOrder, setTestOrder] = useState(null);
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [msg91Mobile, setMsg91Mobile] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get("/admin/qa/live-check/status").then((x) => x.data);
+      setStatus(r);
+    } catch (e) {
+      toast.error(formatApiError(e, "Failed to load status"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadEvents = async () => {
+    setLoadingEvents(true);
+    try {
+      const r = await api.get("/admin/qa/live-check/webhook-events?limit=25").then((x) => x.data);
+      setEvents(r.events || []);
+    } catch (e) {
+      toast.error(formatApiError(e, "Failed to load webhook events"));
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    loadEvents();
+  }, []);
+
+  const createTestOrder = async () => {
+    setCreatingOrder(true);
+    setTestOrder(null);
+    try {
+      const r = await api
+        .post("/admin/qa/live-check/razorpay/test-order", { amount_paise: 100 })
+        .then((x) => x.data);
+      setTestOrder(r);
+      if (r.is_mock) {
+        toast.info("Mock order created — Razorpay is in mock mode.");
+      } else {
+        toast.success(`Live order created: ${r.order_id}`);
+      }
+    } catch (e) {
+      toast.error(formatApiError(e, "Failed to create test order"));
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
+
+  const sendMsg91 = async () => {
+    if (!msg91Mobile || msg91Mobile.length < 10) {
+      toast.error("Enter a 10-digit mobile number");
+      return;
+    }
+    setSending(true);
+    try {
+      const r = await api
+        .post("/admin/qa/live-check/msg91/dry-run", { mobile: msg91Mobile })
+        .then((x) => x.data);
+      if (r.dev_mode) {
+        toast.info(`Dev mode: dispatched code ${r.code_dev} (no real SMS sent)`);
+      } else {
+        toast.success("SMS dispatched via MSG91 — check the handset");
+      }
+    } catch (e) {
+      toast.error(formatApiError(e, "MSG91 send failed"));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const copy = (val) => {
+    navigator.clipboard?.writeText(String(val || "")).then(() => toast.success("Copied"));
+  };
+
+  const rzp = status?.razorpay;
+  const sms = status?.msg91;
+
+  return (
+    <div className="px-6 py-6" data-testid="admin-live-check-page">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="rw-eyebrow">Launch Diagnostics</p>
+          <h1 className="mt-1 rw-serif text-4xl">Live Integration Check</h1>
+          <p className="text-sm text-muted-foreground">
+            Verify Razorpay + MSG91 keys before flipping production. Non-destructive: no user is charged, no purchase created.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={load} disabled={loading} data-testid="live-check-refresh">
+          {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+          Refresh status
+        </Button>
+      </div>
+
+      {loading && !status ? (
+        <Card className="mt-6 p-10 text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+        </Card>
+      ) : status ? (
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          {/* RAZORPAY */}
+          <Card className="rw-card p-5" data-testid="live-check-razorpay-card">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-primary" />
+                <h2 className="rw-serif text-xl">Razorpay</h2>
+              </div>
+              <ModeChip mode={rzp.status} />
+            </div>
+            <div className="mt-3">
+              <Row label="Mock mode env" value={rzp.mock_mode ? "true" : "false"} ok={!rzp.mock_mode} testid="row-rzp-mock" />
+              <Row label="Effective mode" value={rzp.is_mock_effective ? "MOCK" : "LIVE"} ok={!rzp.is_mock_effective} />
+              <Row label="Key id" value={rzp.key_id_masked} mono testid="row-rzp-key" />
+              <Row label="Key looks live (rzp_live_…)" value={rzp.is_live_key ? "yes" : "no"} ok={rzp.is_live_key} />
+              <Row label="Secret configured" value={rzp.has_secret ? "yes" : "no"} ok={rzp.has_secret} />
+              <Row label="Webhook secret" value={rzp.has_webhook_secret ? "yes" : "no"} ok={rzp.has_webhook_secret} />
+              <Row label="Webhook URLs" value={rzp.webhook_url_hint} mono />
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={createTestOrder} disabled={creatingOrder} data-testid="rzp-test-order-btn">
+                {creatingOrder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />}
+                Create ₹1 test order
+              </Button>
+              {testOrder && (
+                <Badge variant={testOrder.is_mock ? "secondary" : "default"} data-testid="rzp-test-order-result">
+                  {testOrder.is_mock ? "MOCK" : "LIVE"} · {testOrder.order_id}
+                </Badge>
+              )}
+            </div>
+
+            {testOrder && (
+              <div className="mt-3 rounded-lg border border-dashed bg-neutral-50 p-3 text-xs" data-testid="rzp-test-order-detail">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Order id</span>
+                  <span className="flex items-center gap-1 font-mono">
+                    {testOrder.order_id}
+                    <button onClick={() => copy(testOrder.order_id)} className="text-primary">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="font-mono">₹{(testOrder.amount_paise / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Currency</span>
+                  <span className="font-mono">{testOrder.currency}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Receipt</span>
+                  <span className="font-mono">{testOrder.receipt}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Key id</span>
+                  <span className="font-mono">{testOrder.key_id}</span>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* MSG91 */}
+          <Card className="rw-card p-5" data-testid="live-check-msg91-card">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquareText className="h-5 w-5 text-primary" />
+                <h2 className="rw-serif text-xl">MSG91 SMS OTP</h2>
+              </div>
+              <ModeChip mode={sms.status} />
+            </div>
+            <div className="mt-3">
+              <Row label="OTP dev mode" value={sms.otp_dev_mode ? "true" : "false"} ok={!sms.otp_dev_mode} />
+              <Row label="Configured" value={sms.configured ? "yes" : "no"} ok={sms.configured} />
+              <Row label="Auth key" value={sms.auth_key_masked} mono />
+              <Row label="Template id" value={sms.template_id} mono />
+              <Row label="Sender id" value={sms.sender_id} mono />
+            </div>
+
+            <div className="mt-4">
+              <Label htmlFor="msg91-mobile" className="text-xs uppercase tracking-widest text-muted-foreground">
+                Send test OTP (code 424242)
+              </Label>
+              <div className="mt-1 flex items-center gap-2">
+                <Input
+                  id="msg91-mobile"
+                  placeholder="10-digit mobile"
+                  value={msg91Mobile}
+                  onChange={(e) => setMsg91Mobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                  data-testid="msg91-mobile-input"
+                />
+                <Button size="sm" onClick={sendMsg91} disabled={sending} data-testid="msg91-send-btn">
+                  {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                  Send
+                </Button>
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                In dev mode this just logs; with live keys it dispatches a real SMS carrying code <span className="font-mono">424242</span>.
+              </p>
+            </div>
+          </Card>
+
+          {/* Webhook events */}
+          <Card className="rw-card p-5 lg:col-span-2" data-testid="live-check-webhook-card">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Webhook className="h-5 w-5 text-primary" />
+                <h2 className="rw-serif text-xl">Recent Razorpay webhook events</h2>
+                <Badge variant="secondary" data-testid="webhook-count">{events.length}</Badge>
+              </div>
+              <Button variant="ghost" size="sm" onClick={loadEvents} disabled={loadingEvents} data-testid="webhook-refresh">
+                {loadingEvents ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Configure your Razorpay dashboard webhook to any of: <span className="font-mono">/api/payments/webhook</span> or <span className="font-mono">/api/payments/razorpay/webhook</span>.
+              Events land here as soon as Razorpay hits either URL.
+            </p>
+
+            {events.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                No webhook events yet. Trigger a real payment or use Razorpay's dashboard "Send a test event" to verify connectivity.
+              </div>
+            ) : (
+              <div className="mt-4 divide-y" data-testid="webhook-events-list">
+                {events.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between py-2 text-sm">
+                    <div>
+                      <div className="font-mono text-[11px] text-primary">{e.event}</div>
+                      <div className="text-[11px] text-muted-foreground">{e.target || "—"}</div>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {new Date(e.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -1,15 +1,25 @@
-"""QA / Business Rule Validation route."""
+"""QA / Business Rule Validation route + Live integration checks."""
 from __future__ import annotations
 
+import logging
+import os
+import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pydantic import BaseModel, Field
 
+from app.core.config import get_settings
 from app.core.deps import db, get_current_admin
 from app.services.brv import build_pdf, run_brv
+from app.services import payment as pay_svc
+from app.services import sms_msg91
 from app.utils.audit import log_action
+
+logger = logging.getLogger(__name__)
+_settings = get_settings()
 
 router = APIRouter(prefix="/admin/qa", tags=["Admin QA"])
 
@@ -44,3 +54,176 @@ async def brv_pdf(
             "Cache-Control": "no-store",
         },
     )
+
+
+# =============================================================================
+# LIVE INTEGRATION CHECKS
+# =============================================================================
+# Diagnostics for verifying that Razorpay + MSG91 are correctly wired to live
+# credentials BEFORE flipping production. All endpoints are admin-only and
+# non-destructive (test order is ₹1 and never captured / verified).
+
+
+def _mask(value: str, keep: int = 4) -> str:
+    """Return "abcd…wxyz" style masked value for safe display."""
+    if not value:
+        return ""
+    s = str(value)
+    if len(s) <= keep * 2:
+        return s[0] + "…" + s[-1]
+    return f"{s[:keep]}…{s[-keep:]}"
+
+
+@router.get("/live-check/status")
+async def live_check_status(_admin: dict = Depends(get_current_admin)):
+    """One-shot health snapshot of every launch-critical integration."""
+    rzp_key = _settings.RAZORPAY_KEY_ID or ""
+    rzp_secret = _settings.RAZORPAY_KEY_SECRET or ""
+    rzp_webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+    is_live_key = rzp_key.startswith("rzp_live_")
+
+    msg91_configured = sms_msg91.is_configured()
+
+    return {
+        "razorpay": {
+            "mock_mode": _settings.RAZORPAY_MOCK_MODE,
+            "is_mock_effective": pay_svc.is_mock(),
+            "key_id_masked": _mask(rzp_key),
+            "key_id_prefix": rzp_key[:8] if rzp_key else "",
+            "is_live_key": is_live_key,
+            "has_secret": bool(rzp_secret),
+            "has_webhook_secret": bool(rzp_webhook_secret),
+            "webhook_url_hint": "/api/payments/webhook  ·  /api/payments/razorpay/webhook",
+            "status": "live" if (is_live_key and not _settings.RAZORPAY_MOCK_MODE) else "mock",
+        },
+        "msg91": {
+            "otp_dev_mode": _settings.OTP_DEV_MODE,
+            "configured": msg91_configured,
+            "auth_key_masked": _mask(_settings.MSG91_AUTH_KEY),
+            "template_id": _settings.MSG91_TEMPLATE_ID or "",
+            "sender_id": _settings.MSG91_SENDER_ID or "",
+            "status": "live" if (msg91_configured and not _settings.OTP_DEV_MODE) else "dev",
+        },
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+class RazorpayTestOrderRequest(BaseModel):
+    amount_paise: int = Field(default=100, ge=100, le=100000)
+    receipt_note: str | None = Field(default=None, max_length=40)
+
+
+@router.post("/live-check/razorpay/test-order")
+async def live_check_razorpay_test_order(
+    body: RazorpayTestOrderRequest,
+    database: AsyncIOMotorDatabase = Depends(db),
+    admin: dict = Depends(get_current_admin),
+):
+    """Create a real ₹1 (or configurable) test order.
+
+    Non-destructive: no purchase row is created, no user is charged. In LIVE
+    mode this hits the actual Razorpay REST API and returns the real order id;
+    in MOCK mode it returns a synthetic order id. Either way admins can then
+    use the returned order id + key_id from `/config` to test the checkout
+    modal end-to-end without wiring it to a user or program.
+    """
+    receipt = f"livecheck_{uuid.uuid4().hex[:10]}"
+    try:
+        order = pay_svc.create_order(
+            amount_paise=int(body.amount_paise),
+            receipt=receipt,
+            notes={
+                "diagnostic": "live-check",
+                "admin_mobile": admin["mobile"],
+                "note": (body.receipt_note or "")[:40],
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Razorpay live-check failed: %s", exc)
+        # Return raw error string so admin can copy-paste to support.
+        raise HTTPException(502, f"Razorpay error: {exc}") from exc
+
+    await log_action(
+        database, actor_id=admin["mobile"], action="qa.live_check.razorpay_order",
+        entity="qa", meta={"order_id": order.get("id"), "amount": body.amount_paise, "is_mock": order.get("is_mock", pay_svc.is_mock())},
+    )
+    return {
+        "success": True,
+        "order_id": order.get("id"),
+        "amount_paise": order.get("amount"),
+        "currency": order.get("currency", "INR"),
+        "receipt": order.get("receipt"),
+        "is_mock": bool(order.get("is_mock", pay_svc.is_mock())),
+        "key_id": pay_svc.key_id_for_frontend(),
+        "notes": order.get("notes", {}),
+        "raw_status": order.get("status", ""),
+    }
+
+
+@router.get("/live-check/webhook-events")
+async def live_check_webhook_events(
+    limit: int = 25,
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Return recent Razorpay webhook events observed by the backend.
+
+    Sourced from `activity_log` rows written by `POST /api/payments/webhook`
+    with action prefixes `razorpay.webhook.*`. Useful to confirm the Razorpay
+    dashboard is actually reaching this deployment.
+    """
+    limit = max(1, min(int(limit or 25), 100))
+    cursor = database.activity_log.find(
+        {"action": {"$regex": r"^razorpay\.webhook\."}}
+    ).sort("created_at", -1).limit(limit)
+    events = []
+    async for row in cursor:
+        row.pop("_id", None)
+        events.append({
+            "id": row.get("id"),
+            "event": (row.get("action") or "").replace("razorpay.webhook.", ""),
+            "target": row.get("target"),
+            "meta": row.get("meta") or {},
+            "created_at": row.get("created_at"),
+        })
+    return {"events": events, "count": len(events)}
+
+
+class Msg91DryRunRequest(BaseModel):
+    mobile: str = Field(min_length=10, max_length=15)
+
+
+@router.post("/live-check/msg91/dry-run")
+async def live_check_msg91_dry_run(
+    body: Msg91DryRunRequest,
+    database: AsyncIOMotorDatabase = Depends(db),
+    admin: dict = Depends(get_current_admin),
+):
+    """Attempt to dispatch a diagnostic OTP via MSG91.
+
+    - If MSG91 is not configured → returns `{ sent: false, dev_mode: true }`
+      and logs the fake code so the admin can see what would have been sent.
+    - If MSG91 is configured → dispatches an actual SMS with the code 424242.
+      The code is never stored server-side; admins use this only to verify
+      the SMS lands on the target handset.
+    """
+    if not sms_msg91.is_configured():
+        await log_action(
+            database, actor_id=admin["mobile"], action="qa.live_check.msg91_dryrun_dev",
+            entity="qa", meta={"mobile": body.mobile[-4:]},
+        )
+        return {
+            "sent": False,
+            "dev_mode": True,
+            "message": "MSG91 is not configured. Would send code 424242 in live mode.",
+            "code_dev": "424242",
+        }
+    try:
+        ok = await sms_msg91.send_otp_sms(body.mobile, "424242")
+    except sms_msg91.Msg91Error as exc:
+        raise HTTPException(502, f"MSG91 send failed: {exc}") from exc
+    await log_action(
+        database, actor_id=admin["mobile"], action="qa.live_check.msg91_dryrun_live",
+        entity="qa", meta={"mobile": body.mobile[-4:], "sent": ok},
+    )
+    return {"sent": ok, "dev_mode": False, "message": "OTP dispatched via MSG91."}

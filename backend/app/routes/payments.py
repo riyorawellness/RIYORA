@@ -382,7 +382,8 @@ async def razorpay_webhook(request: Request):
 
     event = payload.get("event", "unknown")
     # Best-effort: log the event; primary source of truth is /verify.
-    database = request.app.state.db if hasattr(request.app.state, "db") else None
+    from app.db.mongo import get_db
+    database = get_db()
     if database is not None:
         await database.activity_log.insert_one(
             {
