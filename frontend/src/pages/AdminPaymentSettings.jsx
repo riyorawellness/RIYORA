@@ -15,8 +15,8 @@ import { formatApiError } from "@/lib/api";
 
 const MODES = [
   { key: "manual_qr", label: "Manual QR Payment", desc: "Users pay via UPI QR and submit UTR. Admin verifies manually.", enabled: true },
-  { key: "razorpay",  label: "Razorpay",           desc: "Automated online payments.", enabled: false },
-  { key: "both",       label: "Both (Manual + Razorpay)", desc: "Offer users a choice.", enabled: false },
+  { key: "razorpay",  label: "Razorpay",           desc: "Automated online payments (live).", enabled: true },
+  { key: "both",       label: "Both (Manual + Razorpay)", desc: "Offer users a choice between UPI QR and Razorpay.", enabled: true },
 ];
 
 export default function AdminPaymentSettings() {
@@ -121,8 +121,8 @@ export default function AdminPaymentSettings() {
             <p className="rw-eyebrow">Active provider</p>
             <h2 className="rw-serif text-2xl">Payment mode</h2>
             <p className="text-xs text-muted-foreground">
-              Choose which payment method is offered to users. Only Manual QR is enabled at this stage;
-              additional providers can be enabled here once configured.
+              Choose which payment method is offered to users. Razorpay is now LIVE — you can switch
+              to Razorpay-only or offer both alongside Manual QR.
             </p>
           </div>
           <div className="w-64">
