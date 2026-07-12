@@ -166,7 +166,12 @@ export default function AdminLiveCheck() {
               <Row label="Key looks live (rzp_live_…)" value={rzp.is_live_key ? "yes" : "no"} ok={rzp.is_live_key} />
               <Row label="Secret configured" value={rzp.has_secret ? "yes" : "no"} ok={rzp.has_secret} />
               <Row label="Webhook secret" value={rzp.has_webhook_secret ? "yes" : "no"} ok={rzp.has_webhook_secret} />
-              <Row label="Webhook URLs" value={rzp.webhook_url_hint} mono />
+              <div className="border-b py-2 text-sm last:border-0">
+                <div className="text-muted-foreground">Webhook URLs</div>
+                <div className="mt-1 break-all font-mono text-[11px] text-primary">
+                  {rzp.webhook_url_hint}
+                </div>
+              </div>
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -247,7 +252,11 @@ export default function AdminLiveCheck() {
                 </Button>
               </div>
               <p className="mt-2 text-[11px] text-muted-foreground">
-                In dev mode this just logs; with live keys it dispatches a real SMS carrying code <span className="font-mono">424242</span>.
+                {sms.status === "live" ? (
+                  <>Dispatches a real SMS carrying diagnostic code <span className="font-mono">424242</span>.</>
+                ) : (
+                  <>Dev mode — no real SMS. Regular /auth/send-otp accepts code <span className="font-mono">123456</span>.</>
+                )}
               </p>
             </div>
           </Card>

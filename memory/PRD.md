@@ -358,3 +358,20 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Overall BRV result**: 43/45 rules pass (only L1 & L2 gated on live credentials).
 - **Frontend** — `AdminQA.jsx` — Launch category renders automatically via `groupBy` (no code changes needed). Now shows "7/9 passed" chip next to Launch heading.
 - **Regression** — Full Batch 1-6 + Activity Meter v2: **50/50 PASS**.
+
+## Delivered on 2026-02 (Live Integration Diagnostic — pre-flight launch check)
+- **Backend** (`app/routes/qa.py`) — 4 new admin-only endpoints:
+  - `GET /api/admin/qa/live-check/status` — snapshot of Razorpay + MSG91 env: mock/dev/live status, masked key ids, prefix check (rzp_live_*), secret + webhook-secret presence.
+  - `POST /api/admin/qa/live-check/razorpay/test-order` — creates a real ₹1 (or configurable 100–100000 paise) test order. Live mode hits Razorpay REST; mock mode returns synthetic id. No purchase row created, no user charged, no commissions triggered. Audit-logged.
+  - `GET /api/admin/qa/live-check/webhook-events?limit=25` — lists the N most recent Razorpay webhook events observed by the backend (sourced from `activity_log` rows written by `POST /api/payments/webhook`).
+  - `POST /api/admin/qa/live-check/msg91/dry-run` — sends a diagnostic OTP (code `424242`) via MSG91. In dev mode (no keys) returns `{sent:false, dev_mode:true}` without contacting MSG91; in live mode dispatches a real SMS.
+- **Bug fix** — `POST /api/payments/webhook` previously read `request.app.state.db` which is never set, so webhook events were silently dropped from `activity_log`. Switched to `get_db()` — events now persist and appear on the Live Check page.
+- **Frontend** — new `/admin/qa/live-check` page (`AdminLiveCheck.jsx`) with three cards:
+  - Razorpay: mode chip, masked key id, all boolean checks (live prefix / secret / webhook secret), "Create ₹1 test order" button + inline order-id + copy button.
+  - MSG91: mode chip, masked auth key, template + sender ids, mobile input + "Send" test-SMS button. Dev/live label switches automatically.
+  - Recent Razorpay webhook events: last 25 events (event name, target payment id, timestamp) + refresh button.
+- **AdminShell** — new "Live Check" left-rail item (`data-testid=admin-nav-livecheck`).
+- **Tests** — `/app/backend/tests/test_live_check.py` (9/9 PASS): status shape, admin-only guard, mock/live order creation, amount validation (422 for <100 or >100000), webhook capture round-trip (webhook POST → GET /webhook-events), MSG91 dry-run, mobile validation.
+- **E2E** — `/app/test_reports/iteration_23.json`: **30/30 frontend UI checks pass** across Live Check, QA/BRV, Programs, Users, System/Backups, Danger Zone, and full user shell. Zero regressions.
+- **Regression** — Batch 1-6 + Activity Meter v2 + Live Check: **59/59 backend PASS**.
+
