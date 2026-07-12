@@ -78,6 +78,7 @@ class ProgramCreate(BaseModel):
     is_active: bool = True
     is_subscription: bool = False
     is_featured: bool = False
+    payment_mode: Optional[Literal["manual_qr", "razorpay", "both"]] = None
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Literal["sequential", "free"] = "sequential"
 
@@ -97,6 +98,7 @@ class ProgramUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_subscription: Optional[bool] = None
     is_featured: Optional[bool] = None
+    payment_mode: Optional[Literal["manual_qr", "razorpay", "both"]] = None
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Optional[Literal["sequential", "free"]] = None
 

@@ -42,14 +42,19 @@ export default function ProgramDetail() {
   const load = async () => {
     setLoading(true);
     try {
-      const [st, mods, mode] = await Promise.all([
+      const [st, mods] = await Promise.all([
         programsApi.status(id),
         programsApi.modulesByProgram(id).catch(() => ({ modules: [] })),
-        manualPaymentsApi.getMode().catch(() => ({ payment_mode: "razorpay" })),
       ]);
       setStatus(st);
       setModules(mods?.modules || mods?.items || []);
-      setPaymentMode(mode?.payment_mode || "razorpay");
+      // Per-program payment mode (falls back to global)
+      try {
+        const modeRes = await manualPaymentsApi.getMode({ program_id: id });
+        setPaymentMode(modeRes?.payment_mode || "razorpay");
+      } catch {
+        setPaymentMode("razorpay");
+      }
       // fetch pending request for this program (if any)
       try {
         const pending = await manualPaymentsApi.myPending();
@@ -298,6 +303,32 @@ export default function ProgramDetail() {
               <p className="max-w-[240px] text-right text-[10px] text-muted-foreground">
                 Inner Peace launches with secure Razorpay AutoPay subscription.
               </p>
+            </div>
+          ) : status.eligibility && !status.eligibility.eligible ? (
+            <div className="flex flex-col items-end gap-1" data-testid="program-level-locked">
+              <span className="rw-chip bg-neutral-100 text-neutral-700">
+                <Lock className="h-3 w-3" /> Locked
+              </span>
+              <p className="max-w-[260px] text-right text-[10px] text-muted-foreground">
+                {status.eligibility.reason || "Complete the previous level first."}
+              </p>
+            </div>
+          ) : paymentMode === "both" ? (
+            <div className="flex flex-wrap items-end justify-end gap-2">
+              <button
+                className="rw-btn-pill rw-btn-primary"
+                onClick={() => setCheckoutOpen(true)}
+                data-testid={TID.programPurchaseBtn}
+              >
+                Pay online
+              </button>
+              <button
+                className="rw-btn-pill bg-neutral-900 text-white"
+                onClick={() => nav(`/app/pay/${id}`)}
+                data-testid="program-purchase-qr-btn"
+              >
+                Pay via QR
+              </button>
             </div>
           ) : (
             <button

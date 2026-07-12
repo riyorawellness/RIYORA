@@ -2,7 +2,10 @@ import api from "@/lib/api";
 
 export const manualPaymentsApi = {
   // Public / user
-  getMode: () => api.get("/payments/mode").then((r) => r.data),
+  getMode: ({ program_id } = {}) =>
+    api
+      .get("/payments/mode", { params: program_id ? { program_id } : {} })
+      .then((r) => r.data),
   getQR: () => api.get("/payments/manual/qr").then((r) => r.data),
   getQuote: (program_id) => api.get("/payments/manual/quote", { params: { program_id } }).then((r) => r.data),
   submit: (payload) => api.post("/payments/manual/submit", payload).then((r) => r.data),

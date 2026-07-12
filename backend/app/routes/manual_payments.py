@@ -87,6 +87,16 @@ async def _payment_mode(database: AsyncIOMotorDatabase) -> str:
     return mode if mode in ALLOWED_MODES else "manual_qr"
 
 
+async def _resolve_program_payment_mode(
+    database: AsyncIOMotorDatabase, program: dict
+) -> str:
+    """Return the effective payment mode for a program.
+    Precedence: program.payment_mode > global app_setting.payment_mode."""
+    if program and program.get("payment_mode") in ALLOWED_MODES:
+        return program["payment_mode"]
+    return await _payment_mode(database)
+
+
 async def _compute_breakdown(database: AsyncIOMotorDatabase, program: dict) -> dict:
     from app.routes.payments import _compute_breakdown as _rzp_compute
     return await _rzp_compute(database, program)
@@ -115,7 +125,22 @@ async def _notify(database: AsyncIOMotorDatabase, mid: str, title: str, body: st
 
 
 @user_router.get("/mode")
-async def get_payment_mode(database: AsyncIOMotorDatabase = Depends(db)):
+async def get_payment_mode(
+    program_id: str | None = None,
+    database: AsyncIOMotorDatabase = Depends(db),
+):
+    """Return effective payment mode. If `program_id` is passed, prefers the
+    program's per-program override, else falls back to global setting."""
+    if program_id:
+        program = await database.programs.find_one(
+            {"id": program_id, "deleted_at": None}
+        )
+        if program:
+            return {
+                "payment_mode": await _resolve_program_payment_mode(database, program),
+                "program_id": program_id,
+                "program_override": bool(program.get("payment_mode")),
+            }
     return {"payment_mode": await _payment_mode(database)}
 
 
@@ -196,6 +221,14 @@ async def submit_payment(
         raise HTTPException(404, "Program not found")
     if program.get("is_subscription"):
         raise HTTPException(409, "Manual payment not accepted for Inner Peace subscription.")
+
+    # Per-program payment mode: block manual QR submit if program is razorpay-only.
+    prog_mode = await _resolve_program_payment_mode(database, program)
+    if prog_mode == "razorpay":
+        raise HTTPException(
+            409,
+            "This program only accepts Razorpay online payment. Please pay online.",
+        )
 
     if await get_active_purchase(database, current["membership_id"], body.program_id):
         raise HTTPException(409, "You already have active access to this program.")

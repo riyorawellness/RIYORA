@@ -252,3 +252,19 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **User Home wiring**: `Home.jsx` now fetches `is_featured=true, is_subscription=true` for the hero and `is_featured=true, is_subscription=false` for the Featured card. If nothing is featured, the corresponding section is hidden entirely (no dead link, no broken image). Continue-learning still takes precedence over the hero when the user has an in-progress purchase.
 - Verified: create program with `is_featured=true` → shows on Home; toggle off → hidden. Admin can hand-pick exactly which programs surface on the user Home page.
 
+
+## Delivered on 2026-02 (Batch 1 — Per-program payment mode + Level-gate visibility)
+- **Per-program `payment_mode`** field on programs (`manual_qr` | `razorpay` | `both` | null=global). Backend precedence: `program.payment_mode > app_setting.payment_mode`. Admin dropdown in create/edit dialog (`admin-program-field-payment-mode` testid).
+- **New API contract**: `GET /api/payments/mode?program_id=<id>` now returns the effective mode for that specific program with a `program_override` flag.
+- **Cross-flow enforcement**:
+  - `POST /api/payments/manual/submit` — 409 if program is razorpay-only.
+  - `POST /api/payments/order` — 409 if program is manual_qr-only.
+- **User UI**: `ProgramDetail.jsx` now fetches per-program mode and renders:
+  - `manual_qr` → single "Pay via QR" button (goes to `/app/pay/{id}`)
+  - `razorpay` → single "Purchase" button (opens CheckoutModal)
+  - `both` → BOTH buttons side-by-side (Pay online + Pay via QR)
+- **Level-gate visibility** on `/programs/{id}/status`:
+  - Response now embeds `eligibility: { eligible, reason }` (uses existing `check_purchase_allowed` from Phase 4).
+  - `ProgramDetail.jsx` — when `eligible=false`, hides all purchase buttons and shows a "Locked" chip with the server-provided reason (e.g. "Complete 'Level 1' and earn its certificate before purchasing this program.").
+  - Subscription programs bypass the level gate as before.
+- **Tests**: `/app/backend/tests/test_batch1_payment_and_level_gate.py` — 8/8 PASS covering: default global fallback, per-program override, razorpay-only blocks QR submit, manual_qr-only blocks Razorpay order, admin update, eligibility block shape, L2 locked without L1 completion, subscription bypass.

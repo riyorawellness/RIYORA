@@ -57,6 +57,7 @@ const emptyForm = () => ({
   is_active: true,
   is_subscription: false,
   is_featured: false,
+  payment_mode: "",
   level: 0,
   access_mode: "sequential",
 });
@@ -139,6 +140,7 @@ export default function AdminPrograms() {
       const body = { ...form };
       // Clean fields the server rejects when null/empty
       if (!body.category_id) delete body.category_id;
+      if (!body.payment_mode) delete body.payment_mode;
       body.price = Number(body.price);
       body.discount = Number(body.discount);
       body.gst_percent = Number(body.gst_percent);
@@ -517,6 +519,24 @@ export default function AdminPrograms() {
                 <SelectContent>
                   <SelectItem value="sequential">Sequential (level-locked)</SelectItem>
                   <SelectItem value="free">Free (open access)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="col-span-2">
+              <Label>Payment mode <span className="text-[10px] text-muted-foreground">(overrides global setting)</span></Label>
+              <Select
+                value={form.payment_mode || "__default__"}
+                onValueChange={(v) => setField("payment_mode")(v === "__default__" ? "" : v)}
+              >
+                <SelectTrigger data-testid="admin-program-field-payment-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">Use global setting</SelectItem>
+                  <SelectItem value="manual_qr">QR (manual verification)</SelectItem>
+                  <SelectItem value="razorpay">Razorpay (online)</SelectItem>
+                  <SelectItem value="both">Both — user chooses</SelectItem>
                 </SelectContent>
               </Select>
             </div>

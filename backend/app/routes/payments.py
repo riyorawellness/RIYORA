@@ -142,6 +142,15 @@ async def create_order(
     if not allowed:
         raise HTTPException(403, reason)
 
+    # Per-program payment mode: block Razorpay order if program is manual_qr-only.
+    from app.routes.manual_payments import _resolve_program_payment_mode
+    prog_mode = await _resolve_program_payment_mode(database, program)
+    if prog_mode == "manual_qr":
+        raise HTTPException(
+            409,
+            "This program only accepts manual QR payment. Please use the QR flow.",
+        )
+
     breakdown = await _compute_breakdown(database, program)
     amount_paise = int(round(breakdown["total"] * 100))
     if amount_paise <= 0:

@@ -150,12 +150,19 @@ async def program_status(
         prog.pop("_id", None)
     if cert:
         cert.pop("_id", None)
+    # Include eligibility so the UI can hide the "Purchase" button when the
+    # user hasn't completed the previous level yet (Level-gate rule).
+    allowed, reason = await check_purchase_allowed(database, current["membership_id"], program)
     return {
         "program": program,
         "active_purchase": active,
         "has_access": bool(active),
         "progress": prog,
         "certificate": cert,
+        "eligibility": {
+            "eligible": allowed,
+            "reason": reason if not allowed else None,
+        },
     }
 
 
