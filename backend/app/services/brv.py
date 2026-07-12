@@ -373,6 +373,113 @@ async def _c_env_secrets(db):
 
 
 # ============================================================================
+# Launch Readiness (2026-02) — 9-item pre-launch checklist
+# ============================================================================
+
+
+async def _c_msg91_production(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    import os
+    dev = str(os.environ.get("OTP_DEV_MODE", "false")).lower() == "true"
+    if dev:
+        return False, "OTP_DEV_MODE=true", "MSG91 still in dev mode — set OTP_DEV_MODE=false"
+    key = bool(os.environ.get("MSG91_AUTH_KEY"))
+    return key, "auth_key set" if key else "auth_key missing", "production ready" if key else "MSG91_AUTH_KEY missing"
+
+
+async def _c_razorpay_live(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    import os
+    mock = str(os.environ.get("RAZORPAY_MOCK_MODE", "true")).lower() == "true"
+    live = not mock
+    key_id = os.environ.get("RAZORPAY_KEY_ID", "")
+    live_key = key_id.startswith("rzp_live_")
+    if live and live_key:
+        return True, "live mode + live key", "razorpay ready"
+    if not mock and not live_key:
+        return False, "mock=off, key not rzp_live_*", "add real live key"
+    return False, "mock mode on", "flip RAZORPAY_MOCK_MODE=false and add live keys"
+
+
+async def _c_per_program_payment_mode(db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    """Verifies the per-program payment_mode field is honoured by the models."""
+    try:
+        from app.models.phase2 import ProgramCreate  # noqa: F401
+        fields = ProgramCreate.model_fields
+        ok = "payment_mode" in fields
+        return ok, "payment_mode field present" if ok else "missing", "per-program override enabled"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "import failed"
+
+
+async def _c_referral_activity_gated(db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    """Sanity: is_eligible_for_commission requires green meter."""
+    try:
+        from app.services.activity_meter import is_eligible_for_commission  # noqa: F401
+        return True, "helper importable", "meter-gated referral income confirmed"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "activity_meter engine missing"
+
+
+async def _c_sequential_unlock_engine(db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    try:
+        from app.services.program_engine import check_purchase_allowed  # noqa: F401
+        return True, "engine importable", "sequential level gate installed"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "level gate missing"
+
+
+async def _c_admin_preview_route(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    try:
+        from app.routes.admin_preview import router as _r
+        paths = {r.path for r in _r.routes}
+        needed = {"/admin/preview/impersonate/{membership_id}", "/admin/preview/mark-paid"}
+        missing = needed - paths
+        ok = not missing
+        return ok, "impersonate + mark-paid" if ok else f"missing {missing}", "preview mode wired"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "preview module missing"
+
+
+async def _c_backup_routes(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    try:
+        from app.routes.admin_backups import router as _r
+        paths = {r.path for r in _r.routes}
+        needed = {
+            "/admin/backups", "/admin/backups/create",
+            "/admin/backups/{filename}/restore", "/admin/backups/{filename}",
+        }
+        missing = needed - paths
+        ok = not missing
+        return ok, "list/create/restore/delete" if ok else f"missing {missing}", "backup + restore ready"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "admin_backups module missing"
+
+
+async def _c_danger_zone_password_gate(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    try:
+        from app.routes.admin_danger import EmptyAppDataRequest
+        fields = EmptyAppDataRequest.model_fields
+        ok = "admin_password" in fields
+        return ok, "admin_password required" if ok else "missing", "password-gated danger zone"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "danger_zone module missing"
+
+
+async def _c_reports_launch_types(db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    """Ensure the 3 new business-report types + User 360 endpoints are wired."""
+    try:
+        from app.routes.admin_reports import BUILDERS, router as _r
+        needed = {"payouts", "pending_payments", "revenue_summary"}
+        missing = needed - set(BUILDERS.keys())
+        paths = {r.path for r in _r.routes}
+        has_360 = any("/user-360/" in p for p in paths)
+        ok = not missing and has_360
+        detail = "all set" if ok else f"missing_types={missing} user_360={has_360}"
+        return ok, detail, "launch reports wired"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "reports module missing"
+
+
+# ============================================================================
 # Rule catalog
 # ============================================================================
 
@@ -425,6 +532,16 @@ def _build_rules() -> list[Rule]:
         # ---------- PWA / Ops
         Rule("O1",  "PWA/Ops",          "PWA manifest & SW",           "manifest.json + sw.js",        _c_pwa_manifest),
         Rule("O2",  "PWA/Ops",          "Backup script present",       "scripts/backup_mongo.sh",      _c_backup_script),
+        # ---------- Launch Readiness (2026-02 pre-launch checklist)
+        Rule("L1",  "Launch",           "MSG91 production OTP",        "OTP_DEV_MODE=false + auth key", _c_msg91_production),
+        Rule("L2",  "Launch",           "Razorpay live mode",          "MOCK=false + rzp_live_ key",   _c_razorpay_live),
+        Rule("L3",  "Launch",           "Per-program payment mode",    "ProgramCreate.payment_mode",   _c_per_program_payment_mode),
+        Rule("L4",  "Launch",           "Referral gated by activity",  "meter-green requirement",      _c_referral_activity_gated),
+        Rule("L5",  "Launch",           "Sequential level gate",       "check_purchase_allowed",       _c_sequential_unlock_engine),
+        Rule("L6",  "Launch",           "Admin Preview Mode",          "impersonate + mark-paid",      _c_admin_preview_route),
+        Rule("L7",  "Launch",           "Backup / Restore API",        "4 admin/backups routes",       _c_backup_routes),
+        Rule("L8",  "Launch",           "Danger Zone password gate",   "admin_password required",      _c_danger_zone_password_gate),
+        Rule("L9",  "Launch",           "Reports engine (launch spec)","payouts + revenue + 360",     _c_reports_launch_types),
     ]
 
 

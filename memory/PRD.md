@@ -343,3 +343,18 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
   - Registered from FastAPI `lifespan` startup, cancelled on shutdown. Survives uvicorn hot-reload (idempotent `start()`).
   - Visible in backend logs: `scheduler started: 1 job(s)` and `scheduler 'scan_expiring' sleeping <seconds> until <UTC time>`.
 - **Test** — expanded `test_validity_expiring_scan` to also assert `cta_link=="/app/pay/{program_id}"` and `cta_label=="Renew"`.
+
+## Delivered on 2026-02 (Batch 6 — Launch readiness checklist in BRV)
+- **9 new BRV rules** in the "Launch" category (`app/services/brv.py`):
+  - **L1** — MSG91 production OTP (`OTP_DEV_MODE=false` + `MSG91_AUTH_KEY` set) — **FAIL until live keys added**
+  - **L2** — Razorpay live mode (`RAZORPAY_MOCK_MODE=false` + `rzp_live_*` key) — **FAIL until live keys added**
+  - **L3** — Per-program payment mode (`ProgramCreate.payment_mode` field present) — **PASS**
+  - **L4** — Referral gated by activity (`is_eligible_for_commission` importable) — **PASS**
+  - **L5** — Sequential level gate (`check_purchase_allowed` importable) — **PASS**
+  - **L6** — Admin Preview Mode (impersonate + mark-paid routes registered) — **PASS**
+  - **L7** — Backup / Restore API (4 routes registered) — **PASS**
+  - **L8** — Danger Zone password gate (`admin_password` field on `EmptyAppDataRequest`) — **PASS**
+  - **L9** — Reports engine launch spec (payouts + revenue_summary + user-360 routes) — **PASS**
+- **Overall BRV result**: 43/45 rules pass (only L1 & L2 gated on live credentials).
+- **Frontend** — `AdminQA.jsx` — Launch category renders automatically via `groupBy` (no code changes needed). Now shows "7/9 passed" chip next to Launch heading.
+- **Regression** — Full Batch 1-6 + Activity Meter v2: **50/50 PASS**.

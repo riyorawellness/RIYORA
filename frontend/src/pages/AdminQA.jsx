@@ -105,7 +105,7 @@ export default function AdminQA() {
         <Card className="mt-6 border-dashed p-10 text-center">
           <Info className="mx-auto h-10 w-10 text-muted-foreground/60" />
           <p className="mt-3 text-sm text-muted-foreground">
-            Click <strong>Run BRV</strong> to validate all 36 business rules against the live database.
+            Click <strong>Run BRV</strong> to validate all business rules against the live database.
           </p>
         </Card>
       )}
