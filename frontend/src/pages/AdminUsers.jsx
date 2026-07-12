@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2, Trash2 } from "lucide-react";
+import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2, Trash2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +13,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { adminApi } from "@/services/admin";
+import { startAdminPreview } from "@/services/adminPreview";
 import { formatApiError } from "@/lib/api";
 
 export default function AdminUsers() {
+  const nav = useNavigate();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState("");
@@ -123,6 +126,17 @@ export default function AdminUsers() {
     }
   };
 
+  const preview = async (u) => {
+    try {
+      await startAdminPreview(u.membership_id);
+      toast.success(`Previewing as ${u.membership_id}`);
+      // Full reload so AuthContext picks up the new tokens.
+      window.location.assign("/app");
+    } catch (e) {
+      toast.error(formatApiError(e, "Preview failed"));
+    }
+  };
+
   return (
     <div className="px-6 py-6">
       <p className="rw-eyebrow">Members</p>
@@ -196,6 +210,16 @@ export default function AdminUsers() {
                   <TableCell className="text-right">
                     <Button size="sm" variant="outline" onClick={() => openDetail(u.membership_id)} data-testid={`admin-user-view-${u.membership_id}`}>
                       <Eye className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-1 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                      onClick={() => preview(u)}
+                      title="Preview app as this user"
+                      data-testid={`admin-user-preview-${u.membership_id}`}
+                    >
+                      <ShieldCheck className="h-3 w-3" />
                     </Button>
                     <Button size="sm" variant="outline" className="ml-1" onClick={() => setPwDialog(u.membership_id)} data-testid={`admin-user-pw-${u.membership_id}`}>
                       <KeyRound className="h-3 w-3" />

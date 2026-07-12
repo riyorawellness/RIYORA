@@ -268,3 +268,14 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
   - `ProgramDetail.jsx` — when `eligible=false`, hides all purchase buttons and shows a "Locked" chip with the server-provided reason (e.g. "Complete 'Level 1' and earn its certificate before purchasing this program.").
   - Subscription programs bypass the level gate as before.
 - **Tests**: `/app/backend/tests/test_batch1_payment_and_level_gate.py` — 8/8 PASS covering: default global fallback, per-program override, razorpay-only blocks QR submit, manual_qr-only blocks Razorpay order, admin update, eligibility block shape, L2 locked without L1 completion, subscription bypass.
+
+## Delivered on 2026-02 (Batch 2 — Admin Preview Mode)
+- **Impersonation** — admin can browse the app as any regular user without knowing their password. New endpoint `POST /api/admin/preview/impersonate/{membership_id}` mints a short-lived (30-min) user-role JWT with `impersonated_by=<admin_mobile>` claim. Blocks impersonation of the company root (RW000000).
+- **Mark as Paid (Preview)** — `POST /api/admin/preview/mark-paid` grants access to any program without payment. Requires the impersonation JWT (guarded by `_impersonated_by` on the current user dict). Creates a `program_purchases` row with `source='admin_preview'`, `is_mock=true`, `payment_status='preview'` — does NOT trigger the commission engine or create a real invoice.
+- **Frontend**:
+  - `services/adminPreview.js` — startAdminPreview / exitAdminPreview / getPreviewMeta / markPaidPreview. Preserves prior user tokens on entry, restores on exit.
+  - `components/PreviewBanner.jsx` — sticky red banner injected into `MobileShell` showing "Viewing as RW######" + Exit button. Full-reload on entry/exit to make AuthContext pick up new tokens.
+  - `AdminUsers.jsx` — new indigo Preview button (ShieldCheck icon) per row.
+  - `ProgramDetail.jsx` — special indigo "Mark as Paid (Preview)" card shown only when `isInPreview() && !hasAccess`.
+- **Audit** — every impersonation and mark-paid event is written to `activity_log`.
+- **Tests**: `/app/backend/tests/test_batch2_admin_preview.py` — 8/8 PASS (impersonate happy path, block company root, 404 unknown user, admin-only, mark-paid grants access, idempotent, requires impersonation, does NOT trigger sponsor commissions). Combined Batch 1+2 suite: **16/16 PASS**.

@@ -32,6 +32,10 @@ async def get_current_user(
     user = await database.users.find_one({"membership_id": payload["sub"], "deleted_at": None})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Surface impersonation metadata so downstream routes (e.g. audit log,
+    # Mark-as-Paid) can detect an admin-initiated preview session.
+    if payload.get("impersonated_by"):
+        user["_impersonated_by"] = payload["impersonated_by"]
     return user
 
 
