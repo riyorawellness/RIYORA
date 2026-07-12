@@ -279,3 +279,22 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
   - `ProgramDetail.jsx` — special indigo "Mark as Paid (Preview)" card shown only when `isInPreview() && !hasAccess`.
 - **Audit** — every impersonation and mark-paid event is written to `activity_log`.
 - **Tests**: `/app/backend/tests/test_batch2_admin_preview.py` — 8/8 PASS (impersonate happy path, block company root, 404 unknown user, admin-only, mark-paid grants access, idempotent, requires impersonation, does NOT trigger sponsor commissions). Combined Batch 1+2 suite: **16/16 PASS**.
+
+## Delivered on 2026-02 (Batch 3 — Password-gated Danger Zone + Backup/Restore)
+- **Password gate on destructive endpoints**:
+  - `POST /admin/danger/empty-app-data` — now requires `admin_password` field; fresh DB check (not JWT-cached).
+  - `DELETE /admin/danger/users/{mid}` — requires `admin_password` ONLY when destructive scopes (`wipe_purchases`, `wipe_certificates`, `wipe_commissions`, `wipe_referral_tree`) are enabled.
+- **Auto-backup before wipe**: `empty-app-data` runs a full `mongodump --archive --gzip` into `/app/backups/` BEFORE deleting anything. Backup failure aborts the wipe.
+- **New Backup/Restore API** (`/app/backend/app/routes/admin_backups.py`):
+  - `GET /admin/backups` — list all archives
+  - `POST /admin/backups/create` — manual backup (password-gated)
+  - `POST /admin/backups/{filename}/restore` — mongorestore --drop (password-gated, rejects path traversal)
+  - `DELETE /admin/backups/{filename}` — remove archive (password-gated)
+- **Service** (`app/services/backup.py`) — wraps `mongodump`/`mongorestore` via async subprocess, human-readable sizes, safe filename validation.
+- **Frontend**:
+  - `AdminDangerZone.jsx` — password input added to the 3-step wipe wizard + amber notice explaining auto-backup.
+  - New `AdminBackups.jsx` page + "Backups" tab wired into `AdminSystem.jsx`. Lists all archives with Restore/Delete actions, each dialog requiring the admin password.
+- **Tests**:
+  - `/app/backend/tests/test_batch3_backup_and_password_gate.py` — 9/9 PASS (list, create requires password, wrong password rejected, create+delete happy path, delete wrong password, path traversal blocked, empty-app-data missing password → 422, wrong password → 403, wrong confirmation → 400).
+  - Regression: updated `test_phase6.py::_create_program` to set `payment_mode="razorpay"` explicitly (post-Batch-1 the global default `manual_qr` was blocking `/payments/order` in tests). Also updated `test_red_status_when_subscription_expired` to accept the new `no_plan` status introduced by Activity Meter v2.
+  - **Total suite** across Batches 1+2+3 + Activity Meter v2 + Phase 6 regression: **64/64 PASS**.

@@ -26,13 +26,30 @@ export const adminApi = {
     api.get("/admin/users/export", { responseType: "blob" }).then((r) => r.data),
 
   // Danger Zone
-  emptyAppData: (confirmation) =>
-    api.post("/admin/danger/empty-app-data", { confirmation }).then((r) => r.data),
-  softDeleteUser: (mid, confirmation, options = {}) =>
+  emptyAppData: (confirmation, admin_password) =>
+    api
+      .post("/admin/danger/empty-app-data", { confirmation, admin_password })
+      .then((r) => r.data),
+  softDeleteUser: (mid, confirmation, options = {}, admin_password = null) =>
     api
       .delete(`/admin/danger/users/${mid}`, {
-        data: { confirmation, ...options },
+        data: { confirmation, admin_password, ...options },
       })
+      .then((r) => r.data),
+
+  // Backups
+  listBackups: () => api.get("/admin/backups").then((r) => r.data),
+  createBackup: (admin_password, reason) =>
+    api
+      .post("/admin/backups/create", { admin_password, reason })
+      .then((r) => r.data),
+  restoreBackup: (filename, admin_password) =>
+    api
+      .post(`/admin/backups/${filename}/restore`, { admin_password })
+      .then((r) => r.data),
+  deleteBackup: (filename, admin_password) =>
+    api
+      .delete(`/admin/backups/${filename}`, { data: { admin_password } })
       .then((r) => r.data),
 
   // CMS

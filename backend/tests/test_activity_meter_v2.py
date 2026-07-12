@@ -109,6 +109,7 @@ def one_time_program(admin_h, cat):
             "category_id": cat["id"],
             "is_subscription": False,
             "level": None,
+            "payment_mode": "razorpay",
         },
     )
     return r.json()

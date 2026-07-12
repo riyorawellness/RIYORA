@@ -57,17 +57,20 @@ const WIPED = [
 function EmptyAppDataCard() {
   const [step, setStep] = useState(0);
   const [typed, setTyped] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastReport, setLastReport] = useState(null);
 
   const open = () => {
     setLastReport(null);
     setTyped("");
+    setPassword("");
     setStep(1);
   };
   const close = () => {
     setStep(0);
     setTyped("");
+    setPassword("");
   };
 
   const doWipe = async () => {
@@ -75,13 +78,21 @@ function EmptyAppDataCard() {
       toast.error(`You must type exactly "${CONFIRM_PHRASE}"`);
       return;
     }
+    if (!password.trim()) {
+      toast.error("Enter your admin password");
+      return;
+    }
     setBusy(true);
     try {
-      const res = await adminApi.emptyAppData(typed.trim());
+      const res = await adminApi.emptyAppData(typed.trim(), password);
       setStep(0);
       setTyped("");
+      setPassword("");
       setLastReport(res);
-      toast.success("App data cleared successfully");
+      const bk = res.backup?.filename;
+      toast.success(
+        bk ? `App data cleared · Backup saved as ${bk}` : "App data cleared",
+      );
     } catch (e) {
       toast.error(formatApiError(e, "Wipe failed"));
     } finally {
@@ -219,17 +230,35 @@ function EmptyAppDataCard() {
               exactly (case sensitive) to enable the wipe button.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="empty-confirm">Confirmation phrase</Label>
-            <Input
-              id="empty-confirm"
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              placeholder="EMPTY APP DATA"
-              autoComplete="off"
-              autoFocus
-              data-testid="danger-empty-input"
-            />
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="empty-confirm">Confirmation phrase</Label>
+              <Input
+                id="empty-confirm"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder="EMPTY APP DATA"
+                autoComplete="off"
+                autoFocus
+                data-testid="danger-empty-input"
+              />
+            </div>
+            <div>
+              <Label htmlFor="empty-password">Admin password</Label>
+              <Input
+                id="empty-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Your current admin password"
+                autoComplete="current-password"
+                data-testid="danger-empty-password"
+              />
+            </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+              A full backup will be saved automatically before the wipe. You
+              can restore it later from <b>Admin → Backups</b>.
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={close} disabled={busy} data-testid="danger-empty-cancel-3">
@@ -238,7 +267,7 @@ function EmptyAppDataCard() {
             <Button
               variant="destructive"
               onClick={doWipe}
-              disabled={busy || typed.trim() !== CONFIRM_PHRASE}
+              disabled={busy || typed.trim() !== CONFIRM_PHRASE || !password.trim()}
               data-testid="danger-empty-confirm"
             >
               {busy ? (

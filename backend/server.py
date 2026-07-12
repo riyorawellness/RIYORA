@@ -61,6 +61,7 @@ from app.routes import reports as reports_routes  # noqa: E402
 from app.routes import admin_dashboard as admin_dashboard_routes  # noqa: E402
 from app.routes import admin_users as admin_users_routes  # noqa: E402
 from app.routes import admin_preview as admin_preview_routes  # noqa: E402
+from app.routes import admin_backups as admin_backups_routes  # noqa: E402
 from app.routes import cms as cms_routes  # noqa: E402
 from app.routes import admin_phase7 as admin_phase7_routes  # noqa: E402
 from app.routes import analytics as analytics_routes  # noqa: E402
@@ -236,6 +237,7 @@ api_router.include_router(reports_routes.router)
 api_router.include_router(admin_dashboard_routes.router)
 api_router.include_router(admin_users_routes.router)
 api_router.include_router(admin_preview_routes.router)
+api_router.include_router(admin_backups_routes.router)
 api_router.include_router(cms_routes.router)
 api_router.include_router(cms_routes.admin_router)
 api_router.include_router(admin_phase7_routes.router)

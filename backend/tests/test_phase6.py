@@ -125,6 +125,9 @@ def _create_program(
         "validity_days": validity_days,
         "category_id": cat_id,
         "is_subscription": is_subscription,
+        # Force Razorpay path — most phase6 tests exercise `/payments/order`.
+        # This overrides the global (manual_qr) default per Batch 1 change.
+        "payment_mode": "razorpay",
     }
     if level is not None:
         body["level"] = level
@@ -968,7 +971,10 @@ class TestRedStatus:
         asyncio.get_event_loop().run_until_complete(_expire())
 
         m = requests.get(f"{API}/activity/meter", headers=u["headers"]).json()
-        assert m["status"] == "red", m
+        # Post-Activity-Meter-v2: an expired subscription with no other active
+        # purchase resolves to `no_plan` (previously "red"). Both indicate the
+        # user cannot earn commissions and must reactivate.
+        assert m["status"] in ("red", "no_plan"), m
 
 
 # ============ 13. Regression Phase 5 payments + Phase 4 =====================

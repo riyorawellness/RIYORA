@@ -1,24 +1,13 @@
-"""Admin Danger Zone — Empty App Data + Hard delete user (soft).
+"""Admin Danger Zone — Empty App Data + Hard delete user (soft) + Backups.
 
-These endpoints are irreversible. All calls require:
+These endpoints are irreversible. All destructive calls require:
   - Admin JWT.
   - A body-typed confirmation string that MUST equal the exact literal
     the frontend guides the admin to type (server-side hard gate).
+  - The admin's current password (double-check against session hijack).
 
-Empty App Data preserves:
-  - The admin account itself.
-  - The company / referral-root membership (RW000000).
-  - All CMS content (programs, modules, categories, banners, policies,
-    QR payment settings, system settings).
-
-Empty App Data wipes:
-  - All non-admin users + memberships.
-  - Referral tree rows (except company row).
-  - Profiles, purchases, progress, assessment results, certificates.
-  - Notifications + templates, OTP records, refresh tokens, audit logs.
-  - Commissions, payouts, bank details, subscriptions.
-  - Manual-payment requests + payment orders.
-  - Login lockouts + activity sessions.
+Empty App Data automatically creates a full mongodump backup BEFORE wiping,
+so a restore is always available via `POST /admin/backups/{name}/restore`.
 """
 from __future__ import annotations
 
@@ -30,6 +19,8 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.deps import db, get_current_admin
+from app.core.security import verify_password
+from app.services import backup as backup_svc
 from app.utils.audit import log_action
 
 router = APIRouter(prefix="/admin/danger", tags=["Admin Danger Zone"])
@@ -41,10 +32,12 @@ DELETE_USER_CONFIRM_PHRASE = "DELETE USER"
 
 class EmptyAppDataRequest(BaseModel):
     confirmation: str = Field(..., description=f'Must equal "{EMPTY_CONFIRM_PHRASE}"')
+    admin_password: str = Field(..., description="Current admin password for defense-in-depth")
 
 
 class DeleteUserRequest(BaseModel):
     confirmation: str = Field(..., description=f'Must equal "{DELETE_USER_CONFIRM_PHRASE}"')
+    admin_password: str | None = Field(default=None, description="Current admin password (required for destructive scopes)")
     # Optional: granular data-scope removal. If any of these are True, the
     # corresponding data is HARD-deleted (removed permanently). The core
     # user + membership rows are always SOFT-deleted so the referral tree
@@ -100,6 +93,24 @@ async def empty_app_data(
             detail=f'Confirmation phrase must be exactly "{EMPTY_CONFIRM_PHRASE}".',
         )
 
+    # Password double-check — protect against XSS/CSRF hijacking a live admin
+    # session. Verify against the fresh DB row, not the JWT payload.
+    fresh = await database.admins.find_one(
+        {"mobile": admin["mobile"], "deleted_at": None}
+    )
+    if not fresh or not verify_password(body.admin_password, fresh.get("password_hash", "")):
+        raise HTTPException(status_code=403, detail="Admin password is incorrect")
+
+    # Auto-backup BEFORE wiping. If the backup fails we abort to prevent
+    # unrecoverable data loss.
+    try:
+        backup_meta = await backup_svc.create_backup(reason="pre_empty_app_data")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"Automatic backup failed — wipe aborted. {e}",
+        )
+
     company_id = settings.COMPANY_MEMBERSHIP_ID
     admin_mobile = admin["mobile"]
 
@@ -131,13 +142,14 @@ async def empty_app_data(
         actor_id=admin_mobile,
         action="danger.empty_app_data",
         entity="system",
-        meta=report,
+        meta={"cleared": report, "backup": backup_meta},
     )
 
     return {
         "success": True,
         "message": "App data cleared. Admin, company account, and content preserved.",
         "cleared": report,
+        "backup": backup_meta,
     }
 
 
@@ -161,6 +173,27 @@ async def soft_delete_user(
             status_code=400,
             detail=f'Confirmation phrase must be exactly "{DELETE_USER_CONFIRM_PHRASE}".',
         )
+
+    # If any destructive scope is enabled, require the admin password.
+    destructive = (
+        body.wipe_commissions
+        or body.wipe_referral_tree
+        or body.wipe_purchases
+        or body.wipe_certificates
+    )
+    if destructive:
+        if not body.admin_password:
+            raise HTTPException(
+                status_code=403,
+                detail="Admin password required for destructive delete scopes.",
+            )
+        fresh = await database.admins.find_one(
+            {"mobile": admin["mobile"], "deleted_at": None}
+        )
+        if not fresh or not verify_password(
+            body.admin_password, fresh.get("password_hash", "")
+        ):
+            raise HTTPException(status_code=403, detail="Admin password is incorrect")
 
     if membership_id == settings.COMPANY_MEMBERSHIP_ID:
         raise HTTPException(status_code=400, detail="Cannot delete the company root account.")
