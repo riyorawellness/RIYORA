@@ -397,6 +397,14 @@ async def razorpay_webhook(request: Request):
     return WebhookAck()
 
 
+# Alias — Razorpay dashboard is often configured with
+# `/api/payments/razorpay/webhook`. Delegate to the same handler so admins
+# can freely choose either URL.
+@router.post("/razorpay/webhook", response_model=WebhookAck, include_in_schema=False)
+async def razorpay_webhook_alias(request: Request):
+    return await razorpay_webhook(request)
+
+
 # ---------------- user history --------------------------------------------
 
 
