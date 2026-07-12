@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2, Trash2, ShieldCheck } from "lucide-react";
+import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2, Trash2, ShieldCheck, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
@@ -137,6 +137,24 @@ export default function AdminUsers() {
     }
   };
 
+  const export360 = async (u) => {
+    try {
+      toast.info(`Building 360 report for ${u.membership_id}…`);
+      const blob = await adminApi.export360(u.membership_id);
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `user-360-${u.membership_id}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+      toast.success(`360 report downloaded`);
+    } catch (e) {
+      toast.error(formatApiError(e, "Export failed"));
+    }
+  };
+
   return (
     <div className="px-6 py-6">
       <p className="rw-eyebrow">Members</p>
@@ -220,6 +238,16 @@ export default function AdminUsers() {
                       data-testid={`admin-user-preview-${u.membership_id}`}
                     >
                       <ShieldCheck className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      onClick={() => export360(u)}
+                      title="Download 360° Excel report"
+                      data-testid={`admin-user-export-360-${u.membership_id}`}
+                    >
+                      <FileSpreadsheet className="h-3 w-3" />
                     </Button>
                     <Button size="sm" variant="outline" className="ml-1" onClick={() => setPwDialog(u.membership_id)} data-testid={`admin-user-pw-${u.membership_id}`}>
                       <KeyRound className="h-3 w-3" />

@@ -24,6 +24,8 @@ export const adminApi = {
     api.post(`/admin/users/${mid}/reset-password`, { new_password }).then((r) => r.data),
   exportUsersBlob: () =>
     api.get("/admin/users/export", { responseType: "blob" }).then((r) => r.data),
+  export360: (mid) =>
+    api.get(`/admin/reports/user-360/${mid}/export`, { responseType: "blob" }).then((r) => r.data),
 
   // Danger Zone
   emptyAppData: (confirmation, admin_password) =>

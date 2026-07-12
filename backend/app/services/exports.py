@@ -92,29 +92,40 @@ def to_csv(columns: list[dict], rows: Iterable[dict]) -> bytes:
 
 
 def to_excel(columns: list[dict], rows: Iterable[dict], sheet_name: str = "Report") -> bytes:
+    return to_excel_multi_sheet([(sheet_name, columns, list(rows))])
+
+
+def to_excel_multi_sheet(
+    sheets: list[tuple[str, list[dict], list[dict]]],
+) -> bytes:
+    """Write multiple sheets in ONE workbook.
+    Each entry is (sheet_name, columns, rows).
+    """
     wb = Workbook()
-    ws = wb.active
-    ws.title = sheet_name[:31] or "Report"
+    # Remove the default active sheet — we'll add ours.
+    wb.remove(wb.active)
 
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", fgColor="0B1A5B")
     center = Alignment(horizontal="center", vertical="center")
 
-    for idx, col in enumerate(columns, start=1):
-        cell = ws.cell(row=1, column=idx, value=col["label"])
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center
-        ws.column_dimensions[get_column_letter(idx)].width = col.get("width", 18)
+    for sheet_name, columns, rows in sheets:
+        safe_name = (sheet_name or "Sheet")[:31] or "Sheet"
+        ws = wb.create_sheet(safe_name)
+        for idx, col in enumerate(columns, start=1):
+            cell = ws.cell(row=1, column=idx, value=col["label"])
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+            ws.column_dimensions[get_column_letter(idx)].width = col.get("width", 18)
+        for r_i, row in enumerate(rows, start=2):
+            for c_i, col in enumerate(columns, start=1):
+                v = _raw_value(row.get(col["key"]), col.get("type"))
+                cell = ws.cell(row=r_i, column=c_i, value=v)
+                if col.get("type") == "money":
+                    cell.number_format = '"₹"#,##0.00'
+        ws.freeze_panes = "A2"
 
-    for r_i, row in enumerate(rows, start=2):
-        for c_i, col in enumerate(columns, start=1):
-            v = _raw_value(row.get(col["key"]), col.get("type"))
-            cell = ws.cell(row=r_i, column=c_i, value=v)
-            if col.get("type") == "money":
-                cell.number_format = '"₹"#,##0.00'
-
-    ws.freeze_panes = "A2"
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

@@ -12,23 +12,29 @@ import { adminReportsApi, downloadBlob } from "@/services/analytics";
 import { formatApiError } from "@/lib/api";
 
 const REPORT_TYPES = [
-  { key: "users",         label: "Users" },
-  { key: "programs",      label: "Programs" },
-  { key: "subscriptions", label: "Subscriptions" },
-  { key: "payments",      label: "Payments" },
-  { key: "referrals",     label: "Referrals" },
-  { key: "activity",      label: "Activity" },
-  { key: "assessments",   label: "Assessments" },
+  { key: "users",            label: "Users" },
+  { key: "programs",         label: "Programs" },
+  { key: "subscriptions",    label: "Subscriptions" },
+  { key: "payments",         label: "Payments" },
+  { key: "referrals",        label: "Referrals" },
+  { key: "activity",         label: "Activity" },
+  { key: "assessments",      label: "Assessments" },
+  { key: "payouts",          label: "Wallet payouts" },
+  { key: "pending_payments", label: "Pending QR" },
+  { key: "revenue_summary",  label: "Revenue" },
 ];
 
 const STATUS_OPTIONS = {
-  users:         ["active", "suspended", "deactivated"],
-  programs:      ["active", "inactive"],
-  subscriptions: ["active", "expired", "cancelled"],
-  payments:      ["active", "expired", "refunded"],
-  referrals:     ["pending", "approved", "paid", "rejected"],
-  activity:      [],
-  assessments:   [],
+  users:            ["active", "suspended", "deactivated"],
+  programs:         ["active", "inactive"],
+  subscriptions:    ["active", "expired", "cancelled"],
+  payments:         ["active", "expired", "refunded"],
+  referrals:        ["pending", "approved", "paid", "rejected"],
+  activity:         [],
+  assessments:      [],
+  payouts:          ["pending", "approved", "paid", "rejected"],
+  pending_payments: [],
+  revenue_summary:  [],
 };
 
 function todayISO(offset = 0) {

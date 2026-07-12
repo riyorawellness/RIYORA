@@ -298,3 +298,21 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
   - `/app/backend/tests/test_batch3_backup_and_password_gate.py` — 9/9 PASS (list, create requires password, wrong password rejected, create+delete happy path, delete wrong password, path traversal blocked, empty-app-data missing password → 422, wrong password → 403, wrong confirmation → 400).
   - Regression: updated `test_phase6.py::_create_program` to set `payment_mode="razorpay"` explicitly (post-Batch-1 the global default `manual_qr` was blocking `/payments/order` in tests). Also updated `test_red_status_when_subscription_expired` to accept the new `no_plan` status introduced by Activity Meter v2.
   - **Total suite** across Batches 1+2+3 + Activity Meter v2 + Phase 6 regression: **64/64 PASS**.
+
+## Delivered on 2026-02 (Batch 4 — User 360° export + Business reports)
+- **User 360° JSON + Excel** — new endpoints under `admin_reports.py`:
+  - `GET /api/admin/reports/user-360/{membership_id}` → JSON payload with 11 sections: profile, sponsor, meter, bank, aggregates, downline, payments, programs, commissions, activity, logins, payouts.
+  - `GET /api/admin/reports/user-360/{membership_id}/export` → multi-sheet `.xlsx` with **8 sheets**: Profile · Downline · Payments · Programs · Commissions · Payouts · Activity · Logins. Formatted headers, ₹ money formatting, frozen top row per sheet.
+  - Aggregates auto-computed: total_paid, total_commission_earned, downline_count, purchases_count, programs_touched.
+- **3 new report types** added to `/admin/reports/{type}` framework:
+  - `payouts` — wallet payouts (all statuses, sortable).
+  - `pending_payments` — manual QR requests awaiting admin action.
+  - `revenue_summary` — monthly buckets (default) or yearly (`?level=1`); columns: Period · Sales · Razorpay ₹ · QR ₹ · Taxable ₹ · GST ₹ · Total ₹. Handles gateway split via `source` field or fallback (utr → QR, razorpay_payment_id → Razorpay).
+- **Payments report** enhanced — now shows Gateway, UTR, Razorpay Payment ID columns (previously missing).
+- **Shared exports service** — new `to_excel_multi_sheet()` in `services/exports.py`; kept `to_excel()` as a single-sheet convenience wrapper (fully backward-compatible).
+- **Frontend**:
+  - `AdminReports.jsx` — tabs expanded from 7 → 10 (Wallet payouts, Pending QR, Revenue).
+  - `AdminUsers.jsx` — new emerald "Export 360°" button (FileSpreadsheet icon) per user row.
+  - `services/admin.js` — `export360(mid)` helper returning a Blob.
+- **Tests**: `/app/backend/tests/test_batch4_user360_and_reports.py` — 12/12 PASS.
+- **Aggregate test result** (Batches 1+2+3+4 + Activity Meter v2 + Phase 6 regression): **76/76 PASS**.

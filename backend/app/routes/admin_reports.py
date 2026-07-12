@@ -77,9 +77,12 @@ COLUMNS: dict[str, list[dict]] = {
         {"key": "user_membership_id", "label": "Member",    "width": 14},
         {"key": "user_name",     "label": "Name",           "width": 20},
         {"key": "program_name",  "label": "Program",        "width": 20},
+        {"key": "source",        "label": "Gateway",        "width": 12},
         {"key": "taxable_amount","label": "Taxable",        "width": 12, "type": "money"},
         {"key": "gst_amount",    "label": "GST",            "width": 10, "type": "money"},
         {"key": "total",         "label": "Total",          "width": 12, "type": "money"},
+        {"key": "utr",           "label": "UTR",            "width": 16},
+        {"key": "razorpay_payment_id", "label": "RZP Pay ID", "width": 20},
         {"key": "status",        "label": "Status",         "width": 10},
     ],
     "referrals": [
@@ -109,6 +112,33 @@ COLUMNS: dict[str, list[dict]] = {
         {"key": "score",         "label": "Score",          "width": 10, "type": "int"},
         {"key": "max_score",     "label": "Max",            "width": 8, "type": "int"},
         {"key": "passed",        "label": "Passed",         "width": 10, "type": "bool"},
+    ],
+    "payouts": [
+        {"key": "created_at",   "label": "Requested",       "width": 16, "type": "datetime"},
+        {"key": "user_membership_id", "label": "Member",   "width": 14},
+        {"key": "user_name",    "label": "Name",            "width": 22},
+        {"key": "amount",       "label": "Amount",          "width": 12, "type": "money"},
+        {"key": "status",       "label": "Status",          "width": 12},
+        {"key": "utr",          "label": "UTR",             "width": 20},
+        {"key": "paid_at",      "label": "Paid on",         "width": 16, "type": "date"},
+    ],
+    "pending_payments": [
+        {"key": "created_at",   "label": "Submitted",       "width": 16, "type": "datetime"},
+        {"key": "user_membership_id", "label": "Member",   "width": 14},
+        {"key": "user_name",    "label": "Name",            "width": 22},
+        {"key": "program_name", "label": "Program",         "width": 22},
+        {"key": "amount",       "label": "Amount",          "width": 12, "type": "money"},
+        {"key": "utr",          "label": "UTR",             "width": 20},
+        {"key": "status",       "label": "Status",          "width": 12},
+    ],
+    "revenue_summary": [
+        {"key": "period",       "label": "Period",          "width": 12},
+        {"key": "purchases",    "label": "Sales",           "width": 10, "type": "int"},
+        {"key": "razorpay_amount", "label": "Razorpay ₹", "width": 14, "type": "money"},
+        {"key": "qr_amount",    "label": "QR ₹",           "width": 14, "type": "money"},
+        {"key": "taxable_amount", "label": "Taxable ₹",   "width": 14, "type": "money"},
+        {"key": "gst_amount",   "label": "GST ₹",         "width": 12, "type": "money"},
+        {"key": "total",        "label": "Total ₹",       "width": 14, "type": "money"},
     ],
 }
 
@@ -258,9 +288,14 @@ async def _build_payments(database: AsyncIOMotorDatabase, filters: dict) -> tupl
                 "user_membership_id": p["user_membership_id"],
                 "user_name": u.get("full_name"),
                 "program_name": prog.get("name"),
+                "source": p.get("source") or (
+                    "razorpay" if p.get("razorpay_payment_id") else ("manual_qr" if p.get("utr") else "—")
+                ),
                 "taxable_amount": p.get("taxable_amount") or p.get("price_paid"),
                 "gst_amount": p.get("gst_amount"),
                 "total": p.get("total"),
+                "utr": p.get("utr"),
+                "razorpay_payment_id": p.get("razorpay_payment_id"),
                 "status": p.get("status"),
             }
         )
@@ -357,6 +392,107 @@ async def _build_assessments(database: AsyncIOMotorDatabase, filters: dict) -> t
     return total, items
 
 
+async def _build_payouts(database: AsyncIOMotorDatabase, filters: dict) -> tuple[int, list[dict]]:
+    match: dict = {"deleted_at": None}
+    if filters.get("since") and filters.get("until"):
+        match["created_at"] = {"$gte": filters["since"], "$lte": filters["until"]}
+    if filters.get("status"):
+        match["status"] = filters["status"]
+    if filters.get("q"):
+        match["user_membership_id"] = {"$regex": filters["q"], "$options": "i"}
+    total = await database.payouts.count_documents(match)
+    cursor = database.payouts.find(match).sort("created_at", -1)
+    if filters.get("page_size"):
+        cursor = cursor.skip((filters["page"] - 1) * filters["page_size"]).limit(filters["page_size"])
+    items = []
+    async for p in cursor:
+        u = await database.users.find_one({"membership_id": p.get("user_membership_id")}, {"full_name": 1}) or {}
+        items.append(
+            {
+                "created_at": p.get("created_at"),
+                "user_membership_id": p.get("user_membership_id"),
+                "user_name": u.get("full_name"),
+                "amount": p.get("amount"),
+                "status": p.get("status"),
+                "utr": p.get("utr"),
+                "paid_at": p.get("paid_at"),
+            }
+        )
+    return total, items
+
+
+async def _build_pending_payments(database: AsyncIOMotorDatabase, filters: dict) -> tuple[int, list[dict]]:
+    """Manual QR payment requests currently awaiting admin approval."""
+    match: dict = {"deleted_at": None, "status": {"$in": ["pending", "under_review"]}}
+    if filters.get("since") and filters.get("until"):
+        match["created_at"] = {"$gte": filters["since"], "$lte": filters["until"]}
+    if filters.get("q"):
+        match["$or"] = [
+            {"utr": {"$regex": filters["q"], "$options": "i"}},
+            {"user_membership_id": {"$regex": filters["q"], "$options": "i"}},
+        ]
+    total = await database.payment_requests.count_documents(match)
+    cursor = database.payment_requests.find(match).sort("created_at", -1)
+    if filters.get("page_size"):
+        cursor = cursor.skip((filters["page"] - 1) * filters["page_size"]).limit(filters["page_size"])
+    items = []
+    async for pr in cursor:
+        u = await database.users.find_one({"membership_id": pr.get("user_membership_id")}, {"full_name": 1}) or {}
+        prog = await database.programs.find_one({"id": pr.get("program_id")}, {"name": 1}) or {}
+        items.append(
+            {
+                "created_at": pr.get("created_at"),
+                "user_membership_id": pr.get("user_membership_id"),
+                "user_name": u.get("full_name"),
+                "program_name": prog.get("name"),
+                "amount": pr.get("amount") or pr.get("total"),
+                "utr": pr.get("utr"),
+                "status": pr.get("status"),
+            }
+        )
+    return total, items
+
+
+async def _build_revenue_summary(database: AsyncIOMotorDatabase, filters: dict) -> tuple[int, list[dict]]:
+    """Monthly (default) or yearly revenue rollup with tax + gateway split.
+    Set `filters['level']` to 1 for yearly (repurposes level query param); else monthly."""
+    since = filters.get("since")
+    until = filters.get("until")
+    match: dict = {"deleted_at": None, "status": {"$in": ["active", "expired"]}}
+    if since and until:
+        match["purchase_date"] = {"$gte": since, "$lte": until}
+    yearly = bool(filters.get("level"))  # reuse level param as "yearly?" toggle
+    slice_len = 4 if yearly else 7  # "YYYY" or "YYYY-MM"
+
+    buckets: dict[str, dict[str, float]] = {}
+    async for p in database.program_purchases.find(match):
+        key = (p.get("purchase_date") or "")[:slice_len]
+        b = buckets.setdefault(
+            key,
+            {
+                "purchases": 0,
+                "taxable_amount": 0.0,
+                "gst_amount": 0.0,
+                "total": 0.0,
+                "razorpay_amount": 0.0,
+                "qr_amount": 0.0,
+            },
+        )
+        b["purchases"] += 1
+        b["taxable_amount"] += float(p.get("taxable_amount") or p.get("price_paid") or 0)
+        b["gst_amount"] += float(p.get("gst_amount") or 0)
+        amt = float(p.get("total") or 0)
+        b["total"] += amt
+        source = (p.get("source") or "").lower()
+        if source == "manual_qr" or (p.get("utr") and not p.get("razorpay_payment_id")):
+            b["qr_amount"] += amt
+        elif p.get("razorpay_payment_id") or source == "razorpay":
+            b["razorpay_amount"] += amt
+
+    rows = [{"period": k, **v} for k, v in sorted(buckets.items(), reverse=True)]
+    return len(rows), rows
+
+
 BUILDERS = {
     "users": _build_users,
     "programs": _build_programs,
@@ -365,6 +501,9 @@ BUILDERS = {
     "referrals": _build_referrals,
     "activity": _build_activity,
     "assessments": _build_assessments,
+    "payouts": _build_payouts,
+    "pending_payments": _build_pending_payments,
+    "revenue_summary": _build_revenue_summary,
 }
 
 
@@ -459,6 +598,9 @@ async def export_report(
         "referrals": "Referrals Report",
         "activity": "Activity Report",
         "assessments": "Assessments Report",
+        "payouts": "Payouts Report",
+        "pending_payments": "Pending Payments Report",
+        "revenue_summary": "Revenue Summary",
     }
     subtitle = f"Period: {filters['since'][:10]} → {filters['until'][:10]}"
     content, media_type, filename = export_table(
@@ -479,6 +621,50 @@ async def export_report(
     return Response(
         content=content,
         media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+# ---------- User 360° --------------------------------------------------------
+
+@router.get("/user-360/{membership_id}")
+async def user_360(
+    membership_id: str,
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    from app.services.user_360 import collect_user_360
+    payload = await collect_user_360(database, membership_id)
+    if not payload:
+        raise HTTPException(404, "User not found")
+    return payload
+
+
+@router.get("/user-360/{membership_id}/export")
+async def user_360_export(
+    membership_id: str,
+    database: AsyncIOMotorDatabase = Depends(db),
+    admin: dict = Depends(get_current_admin),
+):
+    from app.services.user_360 import build_360_excel, collect_user_360
+    payload = await collect_user_360(database, membership_id)
+    if not payload:
+        raise HTTPException(404, "User not found")
+    content = build_360_excel(payload)
+    filename = f"user-360-{membership_id}-{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+    await log_action(
+        database,
+        actor_id=admin["mobile"],
+        action="report.export.user_360",
+        entity="user",
+        entity_id=membership_id,
+    )
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
