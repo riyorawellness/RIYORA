@@ -22,6 +22,9 @@ export const adminApi = {
     api.patch(`/admin/users/${mid}/status`, body).then((r) => r.data),
   resetUserPassword: (mid, new_password) =>
     api.post(`/admin/users/${mid}/reset-password`, { new_password }).then((r) => r.data),
+  // Notifications
+  scanExpiring: () =>
+    api.post("/notifications/admin/scan-expiring").then((r) => r.data),
   exportUsersBlob: () =>
     api.get("/admin/users/export", { responseType: "blob" }).then((r) => r.data),
   export360: (mid) =>

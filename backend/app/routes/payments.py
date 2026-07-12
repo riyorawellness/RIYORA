@@ -244,6 +244,20 @@ async def verify_payment(
             {"_id": order["_id"]},
             {"$set": {"status": "signature_failed", "updated_at": _now_iso()}},
         )
+        # Notify user that Razorpay verification failed
+        try:
+            from app.services.notify import payment_failed as _notify_fail
+            program_hint = await database.programs.find_one(
+                {"id": order["program_id"]}, {"name": 1}
+            ) or {}
+            await _notify_fail(
+                database,
+                membership_id=current["membership_id"],
+                program_name=program_hint.get("name", "your program"),
+                reason="Signature verification failed.",
+            )
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(400, "Invalid Razorpay signature")
 
     program = await database.programs.find_one({"id": order["program_id"], "deleted_at": None})
@@ -311,6 +325,19 @@ async def verify_payment(
         await create_commissions_for_purchase(database, purchase_doc)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Commission engine failed: %s", exc)
+
+    # ----- Notification: payment success -----------------------------
+    try:
+        from app.services.notify import payment_success as _notify_success
+        await _notify_success(
+            database,
+            membership_id=current["membership_id"],
+            program_name=program.get("name", "your program"),
+            amount=float(purchase_doc["total"]),
+            source="razorpay",
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     # ----- audit log --------------------------------------------------
     await database.activity_log.insert_one(

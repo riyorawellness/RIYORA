@@ -229,7 +229,19 @@ async def admin_create_program(
                 "Pick a different slug (e.g. add a suffix).",
             )
         raise HTTPException(409, f"A program with slug '{body.slug}' already exists.")
-    return await _repo(database).create(body.model_dump(), actor=admin["mobile"])
+    created = await _repo(database).create(body.model_dump(), actor=admin["mobile"])
+    # Broadcast to all users only if the program launches active + not admin-hidden.
+    if created and created.get("is_active"):
+        try:
+            from app.services.notify import new_program_published as _notify_new
+            await _notify_new(
+                database,
+                program_name=created.get("name", "a new program"),
+                program_id=created["id"],
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return created
 
 
 @router.put("/admin/{program_id}")

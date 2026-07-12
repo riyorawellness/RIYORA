@@ -296,15 +296,6 @@ export default function ProgramDetail() {
             >
               <Loader2 className="h-3 w-3 animate-spin" /> Pending Verification
             </button>
-          ) : program.is_subscription ? (
-            <div className="flex flex-col items-end gap-1">
-              <span className="rw-chip bg-neutral-100 text-neutral-700" data-testid="program-coming-soon-badge">
-                <Sparkles className="h-3 w-3" /> Coming Soon
-              </span>
-              <p className="max-w-[240px] text-right text-[10px] text-muted-foreground">
-                Inner Peace launches with secure Razorpay AutoPay subscription.
-              </p>
-            </div>
           ) : status.eligibility && !status.eligibility.eligible ? (
             <div className="flex flex-col items-end gap-1" data-testid="program-level-locked">
               <span className="rw-chip bg-neutral-100 text-neutral-700">

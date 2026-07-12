@@ -316,3 +316,30 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
   - `services/admin.js` — `export360(mid)` helper returning a Blob.
 - **Tests**: `/app/backend/tests/test_batch4_user360_and_reports.py` — 12/12 PASS.
 - **Aggregate test result** (Batches 1+2+3+4 + Activity Meter v2 + Phase 6 regression): **76/76 PASS**.
+
+## Delivered on 2026-02 (Batch 5 — Notification triggers audit)
+- **New shared service** `/app/backend/app/services/notify.py` — helpers `notify()`, `broadcast()`, plus named-triggers `payment_success()`, `payment_failed()`, `module_unlocked()`, `referral_income()`, `validity_expiring()`, `new_program_published()`. Best-effort inserts: notification failure never breaks the parent operation.
+- **Broadcast fan-out**: `broadcast()` writes one row per active user so the standard `/notifications/me` list picks them up (matches admin_phase7 pattern).
+- **Trigger wiring**:
+  - Razorpay success → `payments.py::verify_payment` (after commission engine)
+  - Razorpay failed → `payments.py::verify_payment` (signature mismatch branch)
+  - Manual QR success → existing `manual_payments.py::approve_payment` (kept)
+  - Manual QR failed → existing `manual_payments.py::reject_payment` (kept)
+  - New Module Unlocked → `program_engine.py::mark_module_completed` (auto-computes next module by module_number, dedup_key prevents dupes)
+  - Referral Income → `commission_engine.py::create_commissions_for_purchase` (only when commission is `eligible`, i.e. sponsor is green)
+  - New Program → `programs.py::admin_create_program` (broadcast, only if `is_active=True`)
+- **Validity Expiring** — new admin endpoint `POST /notifications/admin/scan-expiring` scans all active purchases and fires notifications for any user within the last 7 days of validity. Idempotent per (user, program, days_left) via `dedup_key`. Meant to be called by a nightly cron; a "Scan expiring plans" button on `/admin/notifications` triggers it on demand.
+- **Tests**: `/app/backend/tests/test_batch5_notification_triggers.py` — 7/7 PASS.
+- **Aggregate test result** across Batches 1+2+3+4+5 + Activity Meter v2: **50/50 PASS**.
+
+## Delivered on 2026-02 (Post-Batch-5 add-ons)
+- **Inner Peace "Coming Soon" branding removed** — `ProgramDetail.jsx` no longer short-circuits on `is_subscription` with a Coming-Soon chip. Admin creates the Inner Peace subscription program manually via `/admin/programs` like any other program (subscription toggle + payment mode).
+- **Renew CTA on expiring notifications**:
+  - `services/notify.py::validity_expiring` now sets `cta_link=/app/pay/{program_id}` and `cta_label=Renew`.
+  - `services/notify.py::notify` extended to accept `cta_label` field, stored on the notification doc.
+  - `Notifications.jsx` renders a royal-blue pill button "Renew →" beneath the notification body when both `cta_link` + `cta_label` are present.
+- **Nightly background scheduler**:
+  - New `services/scheduler.py` — asyncio-based daily loop. Fires `_scan_expiring_job` at 03:00 IST every day (idempotent via existing `dedup_key`).
+  - Registered from FastAPI `lifespan` startup, cancelled on shutdown. Survives uvicorn hot-reload (idempotent `start()`).
+  - Visible in backend logs: `scheduler started: 1 job(s)` and `scheduler 'scan_expiring' sleeping <seconds> until <UTC time>`.
+- **Test** — expanded `test_validity_expiring_scan` to also assert `cta_link=="/app/pay/{program_id}"` and `cta_label=="Renew"`.

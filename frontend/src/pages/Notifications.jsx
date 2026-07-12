@@ -179,6 +179,16 @@ export default function Notifications() {
                     <span>·</span>
                     <span>{formatTime(n.created_at)}</span>
                   </div>
+                  {n.cta_link && n.cta_label && (
+                    <div className="mt-2">
+                      <span
+                        className="inline-block rounded-full bg-[hsl(var(--rw-royal))] px-3 py-1 text-[11px] font-semibold text-white"
+                        data-testid={`notif-cta-${n.id}`}
+                      >
+                        {n.cta_label} →
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             );

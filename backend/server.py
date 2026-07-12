@@ -94,8 +94,13 @@ async def lifespan(_app: FastAPI):
     # Phase 10 — legal & support placeholder CMS pages
     from app.db.mongo import get_db  # local import to avoid cycle
     await seed_legal_pages(get_db())
+    # Nightly background scheduler (validity-expiring scan @ 03:00 IST)
+    from app.services import scheduler as _scheduler
+    _scheduler.start(get_db())
     logger.info("Startup complete.")
     yield
+    from app.services import scheduler as _scheduler_stop
+    _scheduler_stop.stop()
     get_client().close()
     logger.info("Shutdown complete.")
 

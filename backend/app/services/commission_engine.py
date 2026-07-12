@@ -169,6 +169,20 @@ async def create_commissions_for_purchase(
         await db.commissions.insert_one(doc)
         doc.pop("_id", None)
         created.append(doc)
+
+        # Notify sponsor of new referral income (only when it's actually payable)
+        if eligible:
+            try:
+                from app.services.notify import referral_income as _notify_ref
+                await _notify_ref(
+                    db,
+                    sponsor_mid=sponsor_id,
+                    buyer_name=buyer.get("full_name") or "a member",
+                    amount=amount,
+                    level=level,
+                )
+            except Exception:  # noqa: BLE001
+                pass
     return created
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send, RefreshCcw } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -67,8 +67,26 @@ export default function AdminNotifications() {
 
   return (
     <div className="px-6 py-6">
-      <p className="rw-eyebrow">Comms</p>
-      <h1 className="mt-1 rw-serif text-4xl">Notifications</h1>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="rw-eyebrow">Comms</p>
+          <h1 className="mt-1 rw-serif text-4xl">Notifications</h1>
+        </div>
+        <Button
+          variant="outline"
+          onClick={async () => {
+            try {
+              const r = await adminApi.scanExpiring();
+              toast.success(`Sent ${r.notifications_created} expiring-plan reminder(s)`);
+            } catch (e) {
+              toast.error(formatApiError(e, "Scan failed"));
+            }
+          }}
+          data-testid="notif-scan-expiring"
+        >
+          <RefreshCcw className="mr-2 h-4 w-4" /> Scan expiring plans
+        </Button>
+      </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[400px_1fr]">
         <Card className="rw-card p-6">

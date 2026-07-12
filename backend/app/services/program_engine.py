@@ -233,6 +233,30 @@ async def mark_module_completed(
     except Exception:  # noqa: BLE001
         pass
 
+    # Notify user of the NEXT module unlocking (if any) — sequential access.
+    try:
+        # Find the module immediately after the one just completed by module_number.
+        just_completed = next((m for m in modules if m["id"] == module_id), None)
+        if just_completed:
+            next_mod = next(
+                (m for m in sorted(modules, key=lambda x: x.get("module_number", 0))
+                 if (m.get("module_number", 0) > just_completed.get("module_number", 0)
+                     and m["id"] not in completed)),
+                None,
+            )
+            if next_mod:
+                from app.services.notify import module_unlocked as _notify_unlock
+                program = await db.programs.find_one({"id": program_id}, {"name": 1}) or {}
+                await _notify_unlock(
+                    db,
+                    membership_id=user_membership_id,
+                    program_name=program.get("name", "your program"),
+                    module_name=next_mod.get("name", f"Module {next_mod.get('module_number', '')}"),
+                    module_id=next_mod["id"],
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
     return result
 
 

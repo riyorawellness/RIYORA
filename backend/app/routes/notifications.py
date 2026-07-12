@@ -201,3 +201,43 @@ async def admin_delete(
     if result.modified_count == 0:
         raise HTTPException(404, "Notification not found")
     return {"message": "Notification deleted"}
+
+
+
+@router.post("/admin/scan-expiring")
+async def admin_scan_expiring(
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Scan all active purchases and fire "expiring" notifications at 7/3/1 day
+    thresholds. Idempotent per (user, program, days_left) via dedup_key.
+    Intended to be called nightly by cron (or by admin from the UI)."""
+    from app.services.notify import validity_expiring as _notify_exp
+
+    now = datetime.now(timezone.utc)
+    created = 0
+    async for p in database.program_purchases.find(
+        {"status": "active", "deleted_at": None}
+    ):
+        try:
+            exp = datetime.fromisoformat(p["expiry_date"].replace("Z", "+00:00"))
+        except (KeyError, TypeError, ValueError):
+            continue
+        days_left = (exp - now).days
+        # Fire on any day within the last 7 days of validity. `dedup_key`
+        # inside `validity_expiring` uses (program_id, days_left) so each
+        # exact-day bucket fires at most once per user & program per cycle.
+        if days_left > 7 or days_left < 0:
+            continue
+        prog = await database.programs.find_one({"id": p["program_id"]}, {"name": 1}) or {}
+        res = await _notify_exp(
+            database,
+            membership_id=p["user_membership_id"],
+            program_name=prog.get("name", "your program"),
+            program_id=p["program_id"],
+            days_left=days_left,
+            expiry_date=p["expiry_date"],
+        )
+        if res:
+            created += 1
+    return {"success": True, "notifications_created": created}
