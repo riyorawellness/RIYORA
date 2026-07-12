@@ -163,6 +163,13 @@ export default function AdminUsers() {
         {total} total · search, filter, suspend, reset password, export CSV
       </p>
 
+      <div className="mt-3 flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900" data-testid="admin-users-preview-hint">
+        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <strong>Preview mode</strong> — click the indigo <em>Preview</em> button on any row to browse the app as that user (impersonation). A red banner will show at the top while previewing; click <em>Exit</em> to return.
+        </div>
+      </div>
+
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -232,12 +239,12 @@ export default function AdminUsers() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="ml-1 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                      className="ml-1 border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
                       onClick={() => preview(u)}
-                      title="Preview app as this user"
+                      title="Preview app as this user (admin impersonation)"
                       data-testid={`admin-user-preview-${u.membership_id}`}
                     >
-                      <ShieldCheck className="h-3 w-3" />
+                      <ShieldCheck className="mr-1 h-3 w-3" /> Preview
                     </Button>
                     <Button
                       size="sm"

@@ -375,3 +375,16 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **E2E** — `/app/test_reports/iteration_23.json`: **30/30 frontend UI checks pass** across Live Check, QA/BRV, Programs, Users, System/Backups, Danger Zone, and full user shell. Zero regressions.
 - **Regression** — Batch 1-6 + Activity Meter v2 + Live Check: **59/59 backend PASS**.
 
+
+## Delivered on 2026-02 (Live-mode flip + visibility polish + Danger Zone verification)
+- **Preview `.env` flipped to LIVE mode** at user request:
+  - `RAZORPAY_MOCK_MODE=false` · `RAZORPAY_KEY_ID=rzp_live_REDACTED` · secret populated
+  - `OTP_DEV_MODE=false` · MSG91 auth key / template / sender all populated
+  - `/admin/qa/live-check/status` reports both integrations **LIVE**; test order creation returns real `order_TCXD6X...` id (not `mock_ord_*`).
+- **BRV Launch category now 9/9 GREEN**; overall verdict **PASS · 45/45 rules**.
+- **NOTE**: Automated pytests are now expected to fail because they rely on dev OTP `123456` and mock Razorpay signatures. This is expected in live mode. To re-enable regression testing, revert `OTP_DEV_MODE` and `RAZORPAY_MOCK_MODE` to `true` and empty the four provider keys.
+- **Admin Users page visibility fix** — Preview button is now `<Preview>` labelled (was icon-only indigo shield) and a persistent indigo hint banner at the top of the page explains impersonation. `data-testid=admin-users-preview-hint`.
+- **Danger Zone verified end-to-end** — the "Empty app data" button does work. Backend `POST /admin/danger/empty-app-data` wipes 20+ collections (preserves admin, company root, programs, banners, CMS), creates a pre-wipe gzipped `mongodump` archive under `/app/backups/`, and returns a per-collection deletion report. Frontend surfaces the report inline under the button as "Last wipe report". Verified via curl (522 → 0 users, 106 KB backup) and via browser (3-step dialog → password → success card, no console errors).
+- **Only remaining launch step**: configure Razorpay dashboard webhook to `https://<your-domain>/api/payments/razorpay/webhook` and paste the secret into `RAZORPAY_WEBHOOK_SECRET`. All other launch prerequisites are green.
+
+
