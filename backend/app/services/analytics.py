@@ -55,7 +55,7 @@ async def revenue_summary(
     state: str | None = None,
 ) -> dict:
     match: dict[str, Any] = {
-        "deleted_at": None,
+        "deleted_at": None, "is_dummy": {"$ne": True},
         "status": {"$in": ["active", "expired"]},
         "purchase_date": {"$gte": since_iso, "$lte": until_iso},
     }
@@ -98,7 +98,7 @@ async def revenue_series(
     program_id: str | None = None,
 ) -> list[dict]:
     match: dict[str, Any] = {
-        "deleted_at": None,
+        "deleted_at": None, "is_dummy": {"$ne": True},
         "status": {"$in": ["active", "expired"]},
         "purchase_date": {"$gte": since_iso, "$lte": until_iso},
     }
@@ -142,7 +142,7 @@ async def program_mix(db: AsyncIOMotorDatabase, since_iso: str, until_iso: str) 
     pipeline = [
         {
             "$match": {
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "status": {"$in": ["active", "expired"]},
                 "purchase_date": {"$gte": since_iso, "$lte": until_iso},
             }
@@ -176,7 +176,7 @@ async def revenue_by_state(db: AsyncIOMotorDatabase, since_iso: str, until_iso: 
     pipeline = [
         {
             "$match": {
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "status": {"$in": ["active", "expired"]},
                 "purchase_date": {"$gte": since_iso, "$lte": until_iso},
             }
@@ -219,7 +219,7 @@ async def source_split(db: AsyncIOMotorDatabase, since_iso: str, until_iso: str)
     pipeline = [
         {
             "$match": {
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "status": {"$in": ["active", "expired"]},
                 "purchase_date": {"$gte": since_iso, "$lte": until_iso},
             }
@@ -256,11 +256,11 @@ async def user_growth(db: AsyncIOMotorDatabase, since_iso: str, until_iso: str) 
 async def user_kpis(db: AsyncIOMotorDatabase) -> dict:
     now_iso = _iso(_now())
     total = await db.users.count_documents({"deleted_at": None})
-    active = await db.users.count_documents({"deleted_at": None, "is_active": True})
+    active = await db.users.count_documents({"deleted_at": None, "is_dummy": {"$ne": True}, "is_active": True})
     # Active subscribers = has any active subscription purchase
     active_subs = await db.program_purchases.count_documents(
         {
-            "deleted_at": None,
+            "deleted_at": None, "is_dummy": {"$ne": True},
             "status": "active",
             "$or": [
                 {"source": "subscription_mock"},
@@ -308,7 +308,7 @@ async def commissions_by_level(
     pipeline = [
         {
             "$match": {
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "created_at": {"$gte": since_iso, "$lte": until_iso},
                 "status": {"$in": ["pending", "approved", "paid"]},
             }
@@ -337,7 +337,7 @@ async def top_earners(
     pipeline = [
         {
             "$match": {
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "created_at": {"$gte": since_iso, "$lte": until_iso},
                 "status": {"$in": ["pending", "approved", "paid"]},
             }
@@ -372,7 +372,7 @@ async def top_buyers(
     pipeline = [
         {
             "$match": {
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "purchase_date": {"$gte": since_iso, "$lte": until_iso},
                 "status": {"$in": ["active", "expired"]},
             }
@@ -410,22 +410,22 @@ async def subscription_health(db: AsyncIOMotorDatabase) -> dict:
     week_iso = _iso(_now() + timedelta(days=7))
 
     active = await db.program_purchases.count_documents(
-        {"deleted_at": None, "status": "active", "expiry_date": {"$gt": now_iso},
+        {"deleted_at": None, "is_dummy": {"$ne": True}, "status": "active", "expiry_date": {"$gt": now_iso},
          "$or": [{"source": "subscription_mock"}, {"subscription_id": {"$ne": None}}]}
     )
     expiring = await db.program_purchases.count_documents(
-        {"deleted_at": None, "status": "active", "expiry_date": {"$gte": now_iso, "$lte": week_iso},
+        {"deleted_at": None, "is_dummy": {"$ne": True}, "status": "active", "expiry_date": {"$gte": now_iso, "$lte": week_iso},
          "$or": [{"source": "subscription_mock"}, {"subscription_id": {"$ne": None}}]}
     )
     expired = await db.program_purchases.count_documents(
-        {"deleted_at": None, "expiry_date": {"$lte": now_iso},
+        {"deleted_at": None, "is_dummy": {"$ne": True}, "expiry_date": {"$lte": now_iso},
          "$or": [{"source": "subscription_mock"}, {"subscription_id": {"$ne": None}}]}
     )
     # Activity meter breakdown across ALL active subscribers
     pipeline = [
         {
             "$match": {
-                "deleted_at": None, "status": "active",
+                "deleted_at": None, "is_dummy": {"$ne": True}, "status": "active",
                 "expiry_date": {"$gt": now_iso},
                 "$or": [{"source": "subscription_mock"}, {"subscription_id": {"$ne": None}}],
             }
@@ -469,7 +469,7 @@ async def gst_summary(
     pipeline = [
         {
             "$match": {
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "status": {"$in": ["active", "expired"]},
                 "purchase_date": {"$gte": since_iso, "$lte": until_iso},
             }
@@ -525,7 +525,7 @@ async def user_earnings_series(
         {
             "$match": {
                 "sponsor_membership_id": membership_id,
-                "deleted_at": None,
+                "deleted_at": None, "is_dummy": {"$ne": True},
                 "status": {"$in": ["pending", "approved", "paid"]},
                 "created_at": {"$gte": since_iso, "$lte": until_iso},
             }

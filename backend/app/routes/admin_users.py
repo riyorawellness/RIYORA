@@ -16,9 +16,11 @@ from app.models.phase7 import (
     AdminUserStatusUpdate,
     AdminUserUpdate,
 )
+from pydantic import BaseModel, Field
 from app.services.activity_meter import get_meter
 from app.services.commission_engine import summarise_user
 from app.utils.audit import log_action
+from app.utils.membership import generate_membership_id
 
 router = APIRouter(prefix="/admin/users", tags=["Admin Users"])
 
@@ -65,6 +67,7 @@ async def list_users(
                 "sponsor_membership_id": u.get("sponsor_membership_id"),
                 "sponsor_name": u.get("sponsor_name"),
                 "is_active": u.get("is_active", True),
+                "is_dummy": bool(u.get("is_dummy", False)),
                 "status": u.get("status", "active" if u.get("is_active", True) else "deactivated"),
                 "created_at": u["created_at"],
             }
@@ -270,3 +273,133 @@ async def reset_user_password(
         entity_id=membership_id,
     )
     return {"success": True}
+
+
+
+# =============================================================================
+# DUMMY (TESTER) USERS
+# =============================================================================
+# A dummy user is a normal user account marked with `is_dummy=True`. They log
+# in via the standard /auth/login flow, see the entire app like a real user,
+# but on the checkout screen they can hit "Mark as Paid" instead of paying —
+# their purchases carry `source='dummy'` and are filtered out of revenue
+# reports / analytics. No commissions are triggered.
+
+
+class CreateDummyUserRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=100)
+    mobile: str = Field(min_length=10, max_length=15)
+    password: str = Field(min_length=6, max_length=64)
+    state: str = Field(default="TEST", max_length=60)
+    city: str = Field(default="TEST", max_length=60)
+    sponsor_membership_id: str = Field(default="RW000000", max_length=20)
+
+
+@router.post("/dummy", status_code=201)
+async def create_dummy_user(
+    body: CreateDummyUserRequest,
+    database: AsyncIOMotorDatabase = Depends(db),
+    admin: dict = Depends(get_current_admin),
+):
+    """Create a tester (dummy) user without OTP verification.
+
+    Admin-only. The new account can log in with (mobile + password) via the
+    normal /auth/login flow. Marked with `is_dummy=True` so all revenue
+    reports filter it out and its "Mark as Paid" endpoint works.
+    """
+    # Mobile uniqueness
+    if await database.users.find_one({"mobile": body.mobile, "deleted_at": None}):
+        raise HTTPException(status_code=409, detail="Mobile already registered")
+
+    # Sponsor must exist
+    sponsor = await database.memberships.find_one(
+        {"membership_id": body.sponsor_membership_id, "deleted_at": None}
+    )
+    if not sponsor:
+        raise HTTPException(status_code=400, detail="Invalid Sponsor / Referral ID")
+
+    membership_id = await generate_membership_id(database)
+    now = _iso()
+
+    user_doc = {
+        "full_name": body.full_name,
+        "mobile": body.mobile,
+        "state": body.state,
+        "city": body.city,
+        "password_hash": hash_password(body.password),
+        "role": "user",
+        "membership_id": membership_id,
+        "sponsor_membership_id": sponsor["membership_id"],
+        "sponsor_name": sponsor.get("owner_name"),
+        "is_active": True,
+        "is_dummy": True,
+        "created_at": now,
+        "updated_at": now,
+        "deleted_at": None,
+    }
+    result = await database.users.insert_one(user_doc)
+    user_doc["_id"] = result.inserted_id
+
+    await database.memberships.insert_one(
+        {
+            "membership_id": membership_id,
+            "owner_name": body.full_name,
+            "user_id": str(result.inserted_id),
+            "sponsor_membership_id": sponsor["membership_id"],
+            "is_company": False,
+            "is_active": True,
+            "is_dummy": True,
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+    )
+    sponsor_tree = await database.referral_tree.find_one(
+        {"user_membership_id": sponsor["membership_id"]}
+    )
+    depth = (sponsor_tree.get("level", 0) if sponsor_tree else 0) + 1
+    await database.referral_tree.insert_one(
+        {
+            "user_membership_id": membership_id,
+            "sponsor_membership_id": sponsor["membership_id"],
+            "level": depth,
+            "joining_date": now,
+            "status": "active",
+            "is_dummy": True,
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+    )
+    await database.profiles.insert_one(
+        {
+            "user_membership_id": membership_id,
+            "email": None,
+            "dob": None,
+            "gender": None,
+            "address": None,
+            "profile_photo_url": None,
+            "occupation": None,
+            "alt_contact": None,
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+    )
+
+    await log_action(
+        database,
+        actor_id=admin["mobile"],
+        action="users.dummy.create",
+        entity="user",
+        entity_id=membership_id,
+        meta={"mobile": body.mobile, "full_name": body.full_name},
+    )
+
+    return {
+        "success": True,
+        "membership_id": membership_id,
+        "mobile": body.mobile,
+        "full_name": body.full_name,
+        "is_dummy": True,
+    }

@@ -14,6 +14,7 @@ def user_to_public(doc: dict) -> dict:
         "sponsor_membership_id": doc["sponsor_membership_id"],
         "sponsor_name": doc.get("sponsor_name"),
         "is_active": doc.get("is_active", True),
+        "is_dummy": bool(doc.get("is_dummy", False)),
         "created_at": doc["created_at"],
         "updated_at": doc["updated_at"],
     }

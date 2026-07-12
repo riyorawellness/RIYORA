@@ -117,6 +117,101 @@ async def get_payment_config(_current: dict = Depends(get_current_user)):
     }
 
 
+
+# ---------------- dummy user Mark-as-Paid ---------------------------------
+
+
+@router.post("/mark-paid", status_code=201)
+async def mark_paid_dummy(
+    body: CreateOrderRequest,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    """Grant a dummy (tester) user free access to a program.
+
+    Only callable by users with `is_dummy=True`. Creates a `program_purchases`
+    row with `source='dummy'` and `is_dummy=True` so revenue reports and
+    analytics filter it out. NO commission engine, NO invoice PDF, NO gateway
+    call, NO notifications.
+    """
+    if not current.get("is_dummy"):
+        raise HTTPException(
+            status_code=403,
+            detail="Mark-as-Paid is only available for dummy (tester) accounts.",
+        )
+
+    program = await database.programs.find_one(
+        {"id": body.program_id, "deleted_at": None, "is_active": True}
+    )
+    if not program:
+        raise HTTPException(404, "Program not found")
+
+    # Existing active access? Return idempotent success.
+    active = await get_active_purchase(database, current["membership_id"], body.program_id)
+    if active:
+        return {
+            "success": True,
+            "purchase_id": active["id"],
+            "already_active": True,
+            "program_id": body.program_id,
+            "expiry_date": active["expiry_date"],
+        }
+
+    breakdown = await _compute_breakdown(database, program)
+    now = datetime.now(timezone.utc)
+    expiry = compute_expiry(now, int(program.get("validity_days") or 365))
+    invoice_number = f"TEST-{uuid.uuid4().hex[:10].upper()}"
+
+    purchase_doc = {
+        "id": str(uuid.uuid4()),
+        "user_membership_id": current["membership_id"],
+        "program_id": body.program_id,
+        "payment_order_id": None,
+        "razorpay_order_id": None,
+        "razorpay_payment_id": None,
+        "price_paid": breakdown["price"],
+        "discount": breakdown["discount"],
+        "taxable_amount": breakdown["taxable"],
+        "gst_percent": breakdown["gst_percent"],
+        "gst_amount": breakdown["gst_amount"],
+        "total": breakdown["total"],
+        "invoice_number": invoice_number,
+        "purchase_date": now.isoformat(),
+        "expiry_date": expiry.isoformat(),
+        "renewal_date": None,
+        "status": "active",
+        "payment_status": "dummy",
+        "source": "dummy",
+        "is_mock": True,
+        "is_dummy": True,
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+        "deleted_at": None,
+    }
+    await database.program_purchases.insert_one(purchase_doc)
+
+    await database.activity_log.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "actor_membership_id": current["membership_id"],
+            "action": "dummy.mark_paid",
+            "target": body.program_id,
+            "meta": {"program_name": program.get("name"), "invoice_number": invoice_number},
+            "created_at": _now_iso(),
+        }
+    )
+
+    return {
+        "success": True,
+        "purchase_id": purchase_doc["id"],
+        "invoice_number": invoice_number,
+        "expiry_date": purchase_doc["expiry_date"],
+        "program_id": body.program_id,
+        "is_dummy": True,
+    }
+
+
+
 # ---------------- create order --------------------------------------------
 
 

@@ -84,6 +84,7 @@ class UserPublic(BaseModel):
     sponsor_membership_id: str
     sponsor_name: str | None = None
     is_active: bool = True
+    is_dummy: bool = False
     created_at: str
     updated_at: str
 

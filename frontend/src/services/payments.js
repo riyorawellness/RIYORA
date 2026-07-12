@@ -6,6 +6,9 @@ export const paymentsApi = {
   createOrder: (programId) =>
     api.post("/payments/order", { program_id: programId }).then((r) => r.data),
 
+  markPaidDummy: (programId) =>
+    api.post("/payments/mark-paid", { program_id: programId }).then((r) => r.data),
+
   verifyPayment: ({ order_id, payment_id, signature }) =>
     api
       .post("/payments/verify", {

@@ -18,7 +18,7 @@ import CheckoutModal from "@/components/CheckoutModal";
 import { programsApi } from "@/services/programs";
 import { paymentsApi } from "@/services/payments";
 import { manualPaymentsApi } from "@/services/manualPayments";
-import { isInPreview, markPaidPreview } from "@/services/adminPreview";
+import { useAuth } from "@/context/AuthContext";
 import { TID } from "@/constants/testIds";
 import { formatApiError } from "@/lib/api";
 
@@ -32,6 +32,8 @@ const ICONS = {
 export default function ProgramDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const { user } = useAuth();
+  const isDummy = !!user?.is_dummy;
 
   const [status, setStatus] = useState(null);
   const [modules, setModules] = useState([]);
@@ -305,6 +307,22 @@ export default function ProgramDetail() {
                 {status.eligibility.reason || "Complete the previous level first."}
               </p>
             </div>
+          ) : isDummy ? (
+            <button
+              className="rw-btn-pill bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={async () => {
+                try {
+                  const res = await paymentsApi.markPaidDummy(id);
+                  toast.success(res.already_active ? "You already have access" : "Marked as paid (Tester mode)");
+                  load();
+                } catch (e) {
+                  toast.error(formatApiError(e, "Mark as paid failed"));
+                }
+              }}
+              data-testid="program-dummy-mark-paid-btn"
+            >
+              Mark as Paid (Tester)
+            </button>
           ) : paymentMode === "both" ? (
             <div className="flex flex-wrap items-end justify-end gap-2">
               <button
@@ -339,38 +357,6 @@ export default function ProgramDetail() {
           )}
         </div>
       </div>
-
-      {/* Admin Preview — Mark as Paid shortcut */}
-      {isInPreview() && !hasAccess && !status.certificate && (
-        <div
-          className="mt-4 rw-card border-2 border-indigo-300 bg-indigo-50 p-4"
-          data-testid="program-preview-mark-paid"
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-800">
-            Admin preview mode
-          </p>
-          <p className="mt-1 text-xs text-indigo-900/80">
-            Instantly grant this member access without a real payment. This
-            purchase is flagged as <span className="font-mono">preview</span>{" "}
-            and does NOT trigger commissions or invoices.
-          </p>
-          <button
-            className="mt-3 rw-btn-pill bg-indigo-600 text-white hover:bg-indigo-700"
-            onClick={async () => {
-              try {
-                const res = await markPaidPreview(id);
-                toast.success(res.message || "Access granted (preview)");
-                load();
-              } catch (e) {
-                toast.error(formatApiError(e, "Preview mark-paid failed"));
-              }
-            }}
-            data-testid="program-preview-mark-paid-btn"
-          >
-            Mark as Paid (Preview)
-          </button>
-        </div>
-      )}
 
       <CheckoutModal
         open={checkoutOpen}

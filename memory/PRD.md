@@ -388,3 +388,26 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 - **Only remaining launch step**: configure Razorpay dashboard webhook to `https://<your-domain>/api/payments/razorpay/webhook` and paste the secret into `RAZORPAY_WEBHOOK_SECRET`. All other launch prerequisites are green.
 
 
+## Delivered on 2026-02 (Dummy tester users — replaces Admin Impersonation)
+- **Admin Impersonation removed** entirely per user request. Deleted: `services/adminPreview.js`, `components/PreviewBanner.jsx`. Removed all frontend imports/usages. Preview button + hint on `/admin/users` gone. `admin_preview.py` backend routes remain dormant (no frontend surface).
+- **Dummy user model** — new field `is_dummy: bool = False` on users, memberships, referral_tree, and `program_purchases`. Surfaced on `UserPublic` (i.e. `/auth/me`) so the frontend can render Tester-specific UI.
+- **New admin endpoint** `POST /api/admin/users/dummy` — creates a real login account marked `is_dummy=true`. No OTP required. Body: `{full_name, mobile, password, state?, city?, sponsor_membership_id?}`. Defaults sponsor to `RW000000` so testers never contaminate real referral trees.
+- **New user endpoint** `POST /api/payments/mark-paid` — requires `current_user.is_dummy=True`. Creates a purchase with `source='dummy'`, `is_dummy=true`, invoice number prefixed `TEST-`, `payment_status='dummy'`. NO commission engine, NO invoice PDF, NO gateway call, NO notifications. Idempotent (returns existing purchase with `already_active=true` if user already has access).
+- **Revenue reports isolation** — `services/analytics.py` patched with `is_dummy: {"$ne": True}` filter on all 16 revenue + user KPI queries. Dummy purchases show zero contribution to revenue/GST/taxable/count.
+- **Commission engine** — early-return in `create_commissions_for_purchase()` when `purchase.is_dummy` is truthy. No sponsor ever earns from a dummy purchase.
+- **Certificates** — cert numbers issued to dummy users are prefixed `TEST-CERT-` and rows carry `is_dummy=true` so admins can distinguish test certs from real ones.
+- **Admin UI** — `AdminUsers.jsx`:
+  - New green "Tester (Dummy) users" hint banner explaining the flow (`admin-users-dummy-hint`).
+  - New emerald **"New Dummy User"** button (`admin-users-create-dummy`) opening a create-dialog with name/mobile/password fields.
+  - Removed indigo Preview button + hint. Added green **"Tester"** badge next to name on dummy rows (`admin-user-tester-badge-*`).
+- **User UI** — `ProgramDetail.jsx`:
+  - Reads `is_dummy` from `useAuth()` context.
+  - If dummy → single green **"Mark as Paid (Tester)"** button (`program-dummy-mark-paid-btn`) replacing all Razorpay/QR purchase paths.
+  - On click → `/payments/mark-paid` → toast success → refresh → status flips to Active.
+  - Non-dummy users see the normal Razorpay/QR/Both flow — unchanged.
+- **End-to-end verified**:
+  - Curl round-trip: create dummy → login → mark-paid → 200 + purchase row → idempotent 2nd call returns `already_active` → revenue analytics reports ₹0 (dummy filtered out).
+  - Frontend: dummy user in Users list shows green "Tester" badge. Create-dialog renders correctly. Dummy user login → program page shows "Active" (already-paid) or "Mark as Paid (Tester)" button (not yet paid).
+
+
+

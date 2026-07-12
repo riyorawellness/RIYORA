@@ -30,6 +30,9 @@ export const adminApi = {
   export360: (mid) =>
     api.get(`/admin/reports/user-360/${mid}/export`, { responseType: "blob" }).then((r) => r.data),
 
+  createDummyUser: (payload) =>
+    api.post("/admin/users/dummy", payload).then((r) => r.data),
+
   // Danger Zone
   emptyAppData: (confirmation, admin_password) =>
     api

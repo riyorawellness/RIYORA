@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2, Trash2, ShieldCheck, FileSpreadsheet } from "lucide-react";
+import { Loader2, Search, Download, Ban, RefreshCcw, Eye, KeyRound, CheckCircle2, Trash2, FileSpreadsheet, UserPlus, TestTube } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { adminApi } from "@/services/admin";
-import { startAdminPreview } from "@/services/adminPreview";
 import { formatApiError } from "@/lib/api";
 
 export default function AdminUsers() {
@@ -31,6 +30,9 @@ export default function AdminUsers() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [page, setPage] = useState(1);
+  const [dummyOpen, setDummyOpen] = useState(false);
+  const [dummyForm, setDummyForm] = useState({ full_name: "", mobile: "", password: "" });
+  const [dummyBusy, setDummyBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -126,14 +128,25 @@ export default function AdminUsers() {
     }
   };
 
-  const preview = async (u) => {
+  const preview = null;  // deprecated — use dummy user instead
+
+  const createDummy = async () => {
+    if (!dummyForm.full_name || dummyForm.mobile.length < 10 || dummyForm.password.length < 6) {
+      toast.error("Enter name, valid 10-digit mobile and 6+ char password");
+      return;
+    }
+    setDummyBusy(true);
     try {
-      await startAdminPreview(u.membership_id);
-      toast.success(`Previewing as ${u.membership_id}`);
-      // Full reload so AuthContext picks up the new tokens.
-      window.location.assign("/app");
+      const r = await adminApi.createDummyUser(dummyForm);
+      toast.success(`Dummy user created: ${r.membership_id}`);
+      setDummyOpen(false);
+      setDummyForm({ full_name: "", mobile: "", password: "" });
+      setPage(1);
+      load();
     } catch (e) {
-      toast.error(formatApiError(e, "Preview failed"));
+      toast.error(formatApiError(e, "Create failed"));
+    } finally {
+      setDummyBusy(false);
     }
   };
 
@@ -163,10 +176,10 @@ export default function AdminUsers() {
         {total} total · search, filter, suspend, reset password, export CSV
       </p>
 
-      <div className="mt-3 flex items-start gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900" data-testid="admin-users-preview-hint">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900" data-testid="admin-users-dummy-hint">
+        <TestTube className="mt-0.5 h-4 w-4 shrink-0" />
         <div>
-          <strong>Preview mode</strong> — click the indigo <em>Preview</em> button on any row to browse the app as that user (impersonation). A red banner will show at the top while previewing; click <em>Exit</em> to return.
+          <strong>Tester (Dummy) users</strong> — create a special tester account that logs in like a real user but can hit <em>Mark as Paid</em> on any program instead of paying. Dummy purchases are excluded from revenue reports and never trigger referral commissions.
         </div>
       </div>
 
@@ -196,6 +209,13 @@ export default function AdminUsers() {
         <Button variant="outline" onClick={exportCsv} data-testid="admin-users-export">
           <Download className="mr-1 h-4 w-4" /> Export CSV
         </Button>
+        <Button
+          onClick={() => setDummyOpen(true)}
+          className="bg-emerald-600 text-white hover:bg-emerald-700"
+          data-testid="admin-users-create-dummy"
+        >
+          <UserPlus className="mr-1 h-4 w-4" /> New Dummy User
+        </Button>
       </div>
 
       <Card className="rw-card mt-4 overflow-x-auto p-0">
@@ -219,7 +239,14 @@ export default function AdminUsers() {
               {items.map((u) => (
                 <TableRow key={u.membership_id}>
                   <TableCell>
-                    <div className="font-medium">{u.full_name}</div>
+                    <div className="font-medium flex items-center gap-2">
+                      {u.full_name}
+                      {u.is_dummy && (
+                        <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100" data-testid={`admin-user-tester-badge-${u.membership_id}`}>
+                          <TestTube className="mr-1 h-2.5 w-2.5" /> Tester
+                        </Badge>
+                      )}
+                    </div>
                     <div className="font-mono text-xs text-muted-foreground">
                       {u.membership_id} · +91 {u.mobile}
                     </div>
@@ -235,16 +262,6 @@ export default function AdminUsers() {
                   <TableCell className="text-right">
                     <Button size="sm" variant="outline" onClick={() => openDetail(u.membership_id)} data-testid={`admin-user-view-${u.membership_id}`}>
                       <Eye className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="ml-1 border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                      onClick={() => preview(u)}
-                      title="Preview app as this user (admin impersonation)"
-                      data-testid={`admin-user-preview-${u.membership_id}`}
-                    >
-                      <ShieldCheck className="mr-1 h-3 w-3" /> Preview
                     </Button>
                     <Button
                       size="sm"
@@ -308,6 +325,60 @@ export default function AdminUsers() {
       <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           {detail && <UserDetailTabs data={detail} />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dummyOpen} onOpenChange={(o) => !o && !dummyBusy && setDummyOpen(false)}>
+        <DialogContent data-testid="admin-users-create-dummy-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-800">
+              <TestTube className="h-5 w-5" /> Create Tester (Dummy) User
+            </DialogTitle>
+            <DialogDescription>
+              Creates a real login account marked as a Tester. They see the full app just like a real user, but can hit <em>Mark as Paid</em> on any program instead of paying. Dummy purchases are excluded from all revenue reports and never trigger commissions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Full name</Label>
+              <Input
+                value={dummyForm.full_name}
+                onChange={(e) => setDummyForm({ ...dummyForm, full_name: e.target.value })}
+                placeholder="e.g. QA Tester 1"
+                data-testid="admin-dummy-name"
+              />
+            </div>
+            <div>
+              <Label>Mobile (10 digits)</Label>
+              <Input
+                value={dummyForm.mobile}
+                onChange={(e) => setDummyForm({ ...dummyForm, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                placeholder="9999XXXXXX"
+                data-testid="admin-dummy-mobile"
+              />
+            </div>
+            <div>
+              <Label>Password (6+ chars)</Label>
+              <Input
+                type="text"
+                value={dummyForm.password}
+                onChange={(e) => setDummyForm({ ...dummyForm, password: e.target.value })}
+                placeholder="Password the tester will use to log in"
+                data-testid="admin-dummy-password"
+              />
+            </div>
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-emerald-900">
+              <div>Tester will log in via <strong>/login</strong> using this mobile + password.</div>
+              <div>Sponsor is <strong>RW000000</strong> (company root) so it never contaminates real referral trees.</div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDummyOpen(false)} disabled={dummyBusy}>Cancel</Button>
+            <Button onClick={createDummy} disabled={dummyBusy} className="bg-emerald-600 text-white hover:bg-emerald-700" data-testid="admin-dummy-submit">
+              {dummyBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
+              Create Tester
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

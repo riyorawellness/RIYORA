@@ -112,6 +112,9 @@ async def create_commissions_for_purchase(
     db: AsyncIOMotorDatabase, purchase: dict
 ) -> list[dict]:
     """Create commission ledger rows for a completed purchase (idempotent per level)."""
+    # Dummy (tester) purchases never trigger commissions.
+    if purchase.get("is_dummy") or purchase.get("source") == "dummy":
+        return []
     program = await db.programs.find_one(
         {"id": purchase["program_id"], "deleted_at": None}
     ) or {}

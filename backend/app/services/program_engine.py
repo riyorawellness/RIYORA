@@ -304,9 +304,11 @@ async def issue_certificate_if_eligible(
     program = await db.programs.find_one({"id": program_id, "deleted_at": None})
     program_name = (program or {}).get("name") or program_id
     now = _now_iso()
-    cert_number = f"RW-CERT-{uuid.uuid4().hex[:10].upper()}"
-    verification_number = uuid.uuid4().hex[:16].upper()
     user_doc = await db.users.find_one({"membership_id": user_membership_id, "deleted_at": None})
+    is_dummy = bool((user_doc or {}).get("is_dummy"))
+    prefix = "TEST-CERT-" if is_dummy else "RW-CERT-"
+    cert_number = f"{prefix}{uuid.uuid4().hex[:10].upper()}"
+    verification_number = uuid.uuid4().hex[:16].upper()
     doc = {
         "id": str(uuid.uuid4()),
         "user_membership_id": user_membership_id,
@@ -318,6 +320,7 @@ async def issue_certificate_if_eligible(
         "issue_date": now,
         "completion_date": prog.get("completion_date") or now,
         "status": "issued",
+        "is_dummy": is_dummy,
         "pdf_url": None,
         "created_at": now,
         "updated_at": now,
