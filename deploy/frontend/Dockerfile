@@ -44,7 +44,42 @@ FROM nginx:1.27-alpine AS runtime
 
 # SPA fallback + gzip + long-term asset caching.
 COPY --from=build /app/build /usr/share/nginx/html
-COPY nginx-spa.conf /etc/nginx/conf.d/default.conf
+
+# nginx-spa.conf is written inline here so this Dockerfile stays self-contained
+# and does not depend on files outside the build context (frontend/).
+# The canonical source is /app/deploy/frontend/nginx-spa.conf — keep both in sync.
+RUN cat > /etc/nginx/conf.d/default.conf <<'NGINX_SPA'
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    location ~* \.(?:css|js|woff2?|eot|ttf|otf|svg|ico|png|jpg|jpeg|gif|webp|avif|mp4|webm|mp3)$ {
+        expires 30d;
+        access_log off;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    location = /service-worker.js {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store" always;
+    }
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 512;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+}
+NGINX_SPA
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
