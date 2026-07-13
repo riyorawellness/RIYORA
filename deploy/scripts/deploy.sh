@@ -79,7 +79,14 @@ fi
 
 [ -f ../backend/firebase-admin.json ] || die "Missing backend/firebase-admin.json (upload from Firebase Console → Project Settings → Service Accounts)"
 [ -f ../backend/requirements.txt ] || die "backend/requirements.txt missing — is this the repo root?"
-ok "docker + env + firebase JSON found"
+
+# The backend container runs as non-root uid 1000 (see deploy/backend/Dockerfile).
+# The bind-mounted firebase-admin.json must be readable by that uid, otherwise
+# firebase_admin.credentials.Certificate() throws PermissionError at runtime.
+chown 1000:1000 ../backend/firebase-admin.json 2>/dev/null || true
+chmod 640       ../backend/firebase-admin.json 2>/dev/null || true
+
+ok "docker + env + firebase JSON found (perms normalised to 1000:1000 640)"
 
 # shellcheck disable=SC1091
 set -a; source .env; set +a
