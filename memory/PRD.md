@@ -378,7 +378,7 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
 
 ## Delivered on 2026-02 (Live-mode flip + visibility polish + Danger Zone verification)
 - **Preview `.env` flipped to LIVE mode** at user request:
-  - `RAZORPAY_MOCK_MODE=false` · `RAZORPAY_KEY_ID=rzp_live_REDACTED` · secret populated
+  - `RAZORPAY_MOCK_MODE=false` · `RAZORPAY_KEY_ID=<rzp_live_from_dashboard>` · secret populated
   - `OTP_DEV_MODE=false` · MSG91 auth key / template / sender all populated
   - `/admin/qa/live-check/status` reports both integrations **LIVE**; test order creation returns real `order_TCXD6X...` id (not `mock_ord_*`).
 - **BRV Launch category now 9/9 GREEN**; overall verdict **PASS · 45/45 rules**.

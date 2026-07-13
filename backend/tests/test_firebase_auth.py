@@ -34,7 +34,13 @@ from tests.helpers.firebase_seed import ADMIN_PASSWORD, ADMIN_MOBILE, _rand_mobi
 
 API = os.environ.get("API_BASE") or "http://localhost:8001/api"
 CRED_PATH = os.environ.get("FIREBASE_ADMIN_CREDENTIALS_PATH", "/app/backend/firebase-admin.json")
-WEB_API_KEY = "REDACTED_FIREBASE_WEB_API_KEY"
+WEB_API_KEY = os.environ.get("REACT_APP_FIREBASE_API_KEY", "")
+
+# Load frontend env to pick up the Web API key when running from the repo root.
+if not WEB_API_KEY:
+    from dotenv import dotenv_values
+    _fe = dotenv_values("/app/frontend/.env")
+    WEB_API_KEY = _fe.get("REACT_APP_FIREBASE_API_KEY", "")
 
 # Auto-init Admin SDK once for the whole suite.
 if not firebase_admin._apps and os.path.exists(CRED_PATH):  # noqa: SLF001
