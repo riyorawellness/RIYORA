@@ -482,5 +482,26 @@ Replaced the entire mobile-OTP (MSG91) authentication stack with **Firebase Auth
 - Password reset via `sendPasswordResetEmail` — email delivery managed by Firebase (no OTP dependency)
 
 
+## Delivered on 2026-02 (VPS deployment kit — turnkey `/app/deploy/`)
+Complete production-ready deployment package under `/app/deploy/`:
+
+- **`docker-compose.yml`** — 5 services: `mongo` (with healthcheck + persistent volume) · `backend` (FastAPI + Firebase Admin, gunicorn 4 workers) · `frontend` (multi-stage node build → nginx static serve) · `nginx` (outer TLS reverse proxy + rate-limit zones) · `certbot` (12h auto-renew loop).
+- **`backend/Dockerfile`** — Python 3.11-slim, non-root user, healthcheck against `/api/health`.
+- **`frontend/Dockerfile`** — Multi-stage: `node:20-alpine` build with all `REACT_APP_*` build args (Firebase + Backend URL) → `nginx:1.27-alpine` runtime. Fixes the "changes not showing after git pull" issue by baking env at build time.
+- **`frontend/nginx-spa.conf`** — SPA fallback for react-router, long-term asset caching, service-worker `no-store` for PWA freshness.
+- **`nginx/default.conf`** — 80→443 redirect + ACME challenge path · TLS 1.2/1.3 · HSTS · security headers · **rate limiting** (5 req/s on `/api/auth/*`, 10 req/s elsewhere) · 100 MB upload cap.
+- **`.env.example`** — every env var documented with ⚠️ tags on the mandatory ones; pre-filled with the user's actual Firebase Web SDK + Razorpay live keys.
+- **`scripts/deploy.sh`** — turnkey: sanity-check env + Firebase JSON → git pull → substitute DOMAIN into nginx conf → bootstrap TLS if first-time → snapshot current image digests for rollback → build + rolling update → wait for backend health → run `verify.sh` → **automatic rollback if any test fails**.
+- **`scripts/verify.sh`** — 10 automated post-deploy smoke tests: `/api/health`, `/api/health/live`, homepage renders with `<div id="root">`, Firebase apiKey baked into JS bundle, admin login mints access_token, Firebase Admin SDK live-check green, Razorpay live-check green, BRV overall PASS, OTP endpoints return 404.
+- **`scripts/rollback.sh`** — flips both backend + frontend to the previous image digest, waits for backend health, re-runs verify.
+- **`scripts/certbot-init.sh`** — first-time Let's Encrypt bootstrap using a temporary bootstrap nginx that only serves ACME challenges.
+- **`DEPLOYMENT.md`** — end-to-end 15-minute VPS runbook: OS setup → repo clone → DNS → secrets → Firebase authorized domains → Razorpay webhook → first deploy → post-launch first-day checklist → 6 common troubleshooting scenarios with exact commands.
+- **`README.md`** — quick-reference index of the folder.
+- **`.gitignore`** (deploy + root) — prevents `firebase-admin.json`, `.env`, `certbot/`, `backups/`, `.rollback/` from ever being committed.
+
+All 4 shell scripts pass `bash -n` syntax check. `docker-compose.yml` passes YAML lint. Ready for one-command `./scripts/deploy.sh` from any Ubuntu 22.04+ VPS.
+
+
+
 
 

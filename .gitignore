@@ -104,3 +104,11 @@ frontend/node_modules/.cache/default-development/16.pack
 frontend/node_modules/.cache/default-development/12.pack
 frontend/node_modules/.cache/default-development/11.pack
 frontend/node_modules/.cache/default-development/21.pack
+
+# Firebase service account — NEVER commit
+backend/firebase-admin.json
+backend/firebase-admin*.json
+deploy/.env
+deploy/.rollback/
+deploy/certbot/
+deploy/backups/

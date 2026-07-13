@@ -1,0 +1,13 @@
+# deploy/ specific — never commit secrets or generated artefacts
+.env
+.env.local
+.env.production
+.rollback/
+certbot/
+backups/
+nginx/le-bootstrap.conf
+
+# The service-account JSON lives one level up in /backend/ but we mention it
+# here as a reminder — root .gitignore should already exclude it.
+../backend/firebase-admin.json
+../backend/firebase-admin*.json
