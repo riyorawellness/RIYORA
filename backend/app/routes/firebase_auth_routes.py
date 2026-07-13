@@ -178,6 +178,18 @@ async def firebase_register(body: FirebaseRegisterBody, database: AsyncIOMotorDa
     if await _find_user_by_firebase(database, summary):
         raise HTTPException(409, "This account already exists. Please sign in instead.")
 
+    # Email-verification gate. For password-based signups Firebase sets
+    # email_verified=False until the user clicks the link we emailed. We
+    # DO NOT create a RIYORA membership until that flips to True; the
+    # frontend polls Firebase for the flag and only calls this endpoint
+    # once verified.  Google logins arrive already-verified so this passes
+    # through without friction.
+    if summary.get("login_method") == "email" and not summary.get("email_verified"):
+        raise HTTPException(
+            status_code=403,
+            detail="Please verify your email before creating your RIYORA profile.",
+        )
+
     # Mobile format + uniqueness.
     if not MOBILE_RE.match(body.mobile):
         raise HTTPException(400, "Enter a valid 10-digit Indian mobile number")
@@ -203,6 +215,11 @@ async def firebase_register(body: FirebaseRegisterBody, database: AsyncIOMotorDa
         "mobile": body.mobile,
         "state": body.state or "",
         "city": body.city or "",
+        "district": "",
+        "pincode": body.pincode or "",
+        "address": body.address,
+        "gender": body.gender,
+        "dob": body.dob,
         "password_hash": None,  # Firebase owns password now
         "role": "user",
         "membership_id": membership_id,
@@ -216,6 +233,7 @@ async def firebase_register(body: FirebaseRegisterBody, database: AsyncIOMotorDa
         "login_method": summary.get("login_method"),
         "photo_url": summary.get("picture"),
         "last_login_at": now,
+        "joining_date": now,
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,

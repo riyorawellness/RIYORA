@@ -9,7 +9,9 @@ import Welcome from "@/pages/Welcome";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import CompleteProfile from "@/pages/CompleteProfile";
-import LinkAccount from "@/pages/LinkAccount";
+import EditProfile from "@/pages/EditProfile";
+import ChangeRequestPage from "@/pages/ChangeRequest";
+import AdminChangeRequests from "@/pages/AdminChangeRequests";
 import ForgotPassword from "@/pages/ForgotPassword";
 import Home from "@/pages/Home";
 import Programs from "@/pages/Programs";
@@ -65,7 +67,6 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/complete-profile" element={<CompleteProfile />} />
-          <Route path="/link-account" element={<LinkAccount />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/offline" element={<Offline />} />
           <Route path="/legal/:slug" element={<LegalPage />} />
@@ -94,6 +95,8 @@ function App() {
             <Route path="bank" element={<BankDetails />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="profile" element={<Profile />} />
+            <Route path="profile/edit" element={<EditProfile />} />
+            <Route path="profile/change-request" element={<ChangeRequestPage />} />
             <Route path="purchases" element={<Purchases />} />
             <Route path="commissions" element={<Commissions />} />
             <Route path="payouts" element={<Payouts />} />
@@ -120,6 +123,7 @@ function App() {
             <Route path="/admin/programs/:programId/modules" element={<AdminProgramModules />} />
             <Route path="/admin/media" element={<AdminMedia />} />
             <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/admin/change-requests" element={<AdminChangeRequests />} />
             <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/admin/referrals" element={<AdminReferrals />} />
             <Route path="/admin/notifications" element={<AdminNotifications />} />

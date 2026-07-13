@@ -24,13 +24,35 @@ class PaginatedResponse(BaseModel):
 
 # ---------- Profiles -------------------------------------------------------
 class ProfileUpdate(BaseModel):
-    email: Optional[EmailStr] = None
+    # NOTE: email + mobile are deliberately absent — they require the admin
+    # approval workflow (see app.routes.profile_editing). Everything below
+    # can be edited by the user directly.
     dob: Optional[str] = Field(default=None, description="ISO-8601 date (YYYY-MM-DD)")
     gender: Optional[Literal["male", "female", "other", "prefer_not"]] = None
     address: Optional[str] = Field(default=None, max_length=500)
+    state: Optional[str] = Field(default=None, max_length=60)
+    district: Optional[str] = Field(default=None, max_length=60)
+    city: Optional[str] = Field(default=None, max_length=60)
+    pincode: Optional[str] = Field(default=None, max_length=10)
     profile_photo_url: Optional[str] = Field(default=None, max_length=1024)
     occupation: Optional[str] = Field(default=None, max_length=100)
+    profession: Optional[str] = Field(default=None, max_length=100)
+    blood_group: Optional[Literal["A+","A-","B+","B-","AB+","AB-","O+","O-","unknown"]] = None
+    emergency_contact: Optional[str] = Field(default=None, max_length=20)
     alt_contact: Optional[str] = Field(default=None, max_length=20)
+    name_pronunciation: Optional[str] = Field(default=None, max_length=100)
+    about_me: Optional[str] = Field(default=None, max_length=1000)
+
+
+class ChangeRequestCreate(BaseModel):
+    field: Literal["email", "mobile"]
+    new_value: str = Field(min_length=1, max_length=120)
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdminApprovalBody(BaseModel):
+    admin_password: str = Field(min_length=1, max_length=128)
+    note: Optional[str] = Field(default=None, max_length=500)
 
 
 class ProfileResponse(BaseModel):

@@ -115,3 +115,4 @@ deploy/.env
 deploy/.rollback/
 deploy/certbot/
 deploy/backups/
+frontend/node_modules/.cache/default-development/5.pack

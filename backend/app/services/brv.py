@@ -477,6 +477,42 @@ async def _c_reports_launch_types(db: AsyncIOMotorDatabase) -> tuple[bool, str, 
         return False, str(e)[:80], "reports module missing"
 
 
+async def _c_change_request_workflow(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    """Change-request routes + admin password re-verification present."""
+    try:
+        from app.routes.profile_editing import router as _u, admin_router as _a
+        u_paths = {r.path for r in _u.routes}
+        a_paths = {r.path for r in _a.routes}
+        need_user = {"/users/me", "/users/me/change-request", "/users/me/change-requests"}
+        need_admin = {
+            "/admin/change-requests",
+            "/admin/change-requests/{request_id}/approve",
+            "/admin/change-requests/{request_id}/reject",
+        }
+        miss_u = need_user - u_paths
+        miss_a = need_admin - a_paths
+        # Verify AdminApprovalBody enforces admin_password.
+        from app.models.phase2 import AdminApprovalBody
+        pwd_gate = "admin_password" in AdminApprovalBody.model_fields
+        ok = not miss_u and not miss_a and pwd_gate
+        detail = "all wired" if ok else f"missing_user={miss_u} missing_admin={miss_a} pwd_gate={pwd_gate}"
+        return ok, detail, "profile edit + change-request workflow ready"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "profile_editing module missing"
+
+
+async def _c_email_verification_gate(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+    """Firebase register must reject email/password signups whose email is not verified."""
+    try:
+        import inspect
+        from app.routes import firebase_auth_routes
+        src = inspect.getsource(firebase_auth_routes.firebase_register)
+        ok = "email_verified" in src and "verify your email" in src.lower()
+        return ok, "verified gate present" if ok else "gate missing", "email verification enforced"
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:80], "firebase_auth_routes module missing"
+
+
 # ============================================================================
 # Rule catalog
 # ============================================================================
@@ -540,6 +576,8 @@ def _build_rules() -> list[Rule]:
         Rule("L7",  "Launch",           "Backup / Restore API",        "4 admin/backups routes",       _c_backup_routes),
         Rule("L8",  "Launch",           "Danger Zone password gate",   "admin_password required",      _c_danger_zone_password_gate),
         Rule("L9",  "Launch",           "Reports engine (launch spec)","payouts + revenue + 360",     _c_reports_launch_types),
+        Rule("L10", "Launch",           "Change-request workflow",     "user PATCH + admin approve/reject + pwd gate", _c_change_request_workflow),
+        Rule("L11", "Launch",           "Email verification gate",     "firebase/register refuses unverified emails",  _c_email_verification_gate),
     ]
 
 

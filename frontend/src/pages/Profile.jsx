@@ -20,7 +20,6 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useSystemInfo } from "@/hooks/useSystemInfo";
 import { TID } from "@/constants/testIds";
-import { toast } from "sonner";
 
 export default function Profile() {
   const { user, logout } = useAuth();
@@ -64,11 +63,18 @@ export default function Profile() {
 
         <div className="mt-4 flex gap-2">
           <button
-            onClick={() => toast.info("Inline profile edit coming next")}
-            className="rw-btn-pill rw-btn-ghost flex-1"
+            onClick={() => nav("/app/profile/edit")}
+            className="rw-btn-pill rw-btn-primary flex-1"
             data-testid={TID.profileEditBtn}
           >
-            <User2 className="h-4 w-4" /> Edit
+            <User2 className="h-4 w-4" /> Edit profile
+          </button>
+          <button
+            onClick={() => nav("/app/profile/change-request")}
+            className="rw-btn-pill rw-btn-ghost flex-1"
+            data-testid="profile-change-request-btn"
+          >
+            <Mail className="h-4 w-4" /> Change email / mobile
           </button>
         </div>
       </div>

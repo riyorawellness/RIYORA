@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, NavLink, Outlet } from "react-router-dom";
-import { LogOut, LayoutDashboard, BarChart3, FileBarChart, ShieldCheck, Users, Wallet, CreditCard, QrCode, ClipboardCheck, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers, BookOpen, FolderOpen, Activity } from "lucide-react";
+import { LogOut, LayoutDashboard, BarChart3, FileBarChart, ShieldCheck, Users, Wallet, CreditCard, QrCode, ClipboardCheck, FileText, Bell, Image as ImageIcon, ScrollText, Settings2, Layers, BookOpen, FolderOpen, Activity, Mail } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ const NAV = [
   { to: "/admin/programs", label: "Programs", icon: BookOpen, testid: "admin-nav-programs" },
   { to: "/admin/media", label: "Media", icon: FolderOpen, testid: "admin-nav-media" },
   { to: "/admin/users", label: "Users", icon: Users, testid: "admin-nav-users" },
+  { to: "/admin/change-requests", label: "Change requests", icon: Mail, testid: "admin-nav-change-requests" },
   { to: "/admin/payments", label: "Payments", icon: CreditCard, testid: "admin-nav-payments" },
   { to: "/admin/payment-verifications", label: "Verify Payments", icon: ClipboardCheck, testid: "admin-nav-payment-verify" },
   { to: "/admin/payment-settings", label: "QR & Settings", icon: QrCode, testid: "admin-nav-payment-settings" },

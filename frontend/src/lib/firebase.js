@@ -6,8 +6,10 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
+  sendEmailVerification,
   updateProfile,
   onAuthStateChanged,
+  reload as fbReload,
   signOut as fbSignOut,
 } from "firebase/auth";
 
@@ -46,7 +48,36 @@ export async function signUpWithEmail(email, password, displayName) {
   if (displayName) {
     try { await updateProfile(cred.user, { displayName }); } catch (_) { /* non-fatal */ }
   }
+  // Trigger the Firebase verification email immediately — the caller
+  // then routes to the "please verify" screen and MUST NOT create the
+  // RIYORA membership until reloadFirebaseUser() reports emailVerified.
+  try {
+    await sendEmailVerification(cred.user);
+  } catch (_) { /* non-fatal — user can hit "Resend" */ }
   return { user: cred.user, idToken: await cred.user.getIdToken() };
+}
+
+export async function resendVerificationEmail() {
+  if (!auth.currentUser) throw new Error("Not signed in");
+  await sendEmailVerification(auth.currentUser);
+}
+
+/**
+ * Force-refresh the local Firebase user record from Firebase's servers so
+ * `emailVerified` reflects a link the user just clicked in another tab.
+ * Returns the refreshed ID token (already-verified) or the existing token
+ * with a fresh copy of the emailVerified flag.
+ */
+export async function reloadFirebaseUser() {
+  if (!auth.currentUser) return { user: null, idToken: null, emailVerified: false };
+  await fbReload(auth.currentUser);
+  // Force refresh so the JWT itself carries email_verified=true
+  const idToken = await auth.currentUser.getIdToken(true);
+  return {
+    user: auth.currentUser,
+    idToken,
+    emailVerified: !!auth.currentUser.emailVerified,
+  };
 }
 
 export async function signInWithEmail(email, password) {
@@ -85,6 +116,8 @@ export function humanFirebaseError(err) {
     "auth/popup-blocked": "Popup blocked by browser. Please allow popups and try again.",
     "auth/network-request-failed": "Network error. Check your connection.",
     "auth/account-exists-with-different-credential": "This email is linked to a different sign-in method.",
+    "auth/unauthorized-domain":
+      "This domain is not authorised for Google sign-in. If you are the admin, add this domain in Firebase Console → Authentication → Settings → Authorized domains.",
   };
   return map[code] || err?.message || "Authentication error. Please try again.";
 }

@@ -1,10 +1,16 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowRight, Loader2, Mail } from "lucide-react";
+import { ArrowRight, CheckCircle2, Loader2, Mail, RefreshCw } from "lucide-react";
 
 import Logo from "@/components/Logo";
-import { humanFirebaseError, signInWithGoogle, signUpWithEmail } from "@/lib/firebase";
+import {
+  humanFirebaseError,
+  reloadFirebaseUser,
+  resendVerificationEmail,
+  signInWithGoogle,
+  signUpWithEmail,
+} from "@/lib/firebase";
 
 function GoogleIcon(props) {
   return (
@@ -18,24 +24,35 @@ function GoogleIcon(props) {
 }
 
 /**
- * Registration Step 1 — the user authenticates with Firebase (Google or
- * email/password). On success we stash the Firebase ID token in
- * sessionStorage and jump to /complete-profile which collects mobile +
- * referral + optional profile fields and calls the RIYORA registration
- * endpoint.
+ * Registration flow — two modes:
+ *   1. Google → verified by Google → go straight to /complete-profile
+ *   2. Email/password → Firebase sends verification email → we sit on the
+ *      "Verify your email" screen, poll Firebase every 3 s, and only
+ *      progress to /complete-profile once emailVerified turns true.
+ *      No RIYORA membership is created before that.
  */
 export default function Register() {
   const nav = useNavigate();
-  const [mode, setMode] = useState("choose");
+  const [mode, setMode] = useState("choose");            // choose | email | verifying
   const [form, setForm] = useState({ full_name: "", email: "", password: "", confirm: "" });
   const [busy, setBusy] = useState(null);
+  const [emailUser, setEmailUser] = useState(null);      // Firebase user awaiting verification
+  const pollRef = useRef(null);
+  const [checking, setChecking] = useState(false);
 
-  const proceed = (idToken, summary) => {
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const proceedVerified = (idToken, user) => {
     sessionStorage.setItem("rw_pending_firebase", JSON.stringify({
       id_token: idToken,
-      summary,
-      full_name_hint: form.full_name || summary?.name || "",
+      summary: {
+        uid: user.uid, email: user.email, name: user.displayName || form.full_name,
+        picture: user.photoURL, login_method: "email", email_verified: true,
+      },
+      full_name_hint: form.full_name || user.displayName || "",
     }));
+    if (pollRef.current) clearInterval(pollRef.current);
+    toast.success("Email verified — let's complete your profile.");
     nav("/complete-profile", { replace: true });
   };
 
@@ -43,10 +60,16 @@ export default function Register() {
     setBusy("google");
     try {
       const { idToken, user } = await signInWithGoogle();
-      proceed(idToken, {
-        uid: user.uid, email: user.email, name: user.displayName, picture: user.photoURL,
-        login_method: "google", email_verified: user.emailVerified,
-      });
+      sessionStorage.setItem("rw_pending_firebase", JSON.stringify({
+        id_token: idToken,
+        summary: {
+          uid: user.uid, email: user.email, name: user.displayName,
+          picture: user.photoURL, login_method: "google",
+          email_verified: user.emailVerified,
+        },
+        full_name_hint: form.full_name || user.displayName || "",
+      }));
+      nav("/complete-profile", { replace: true });
       toast.success("Google account verified — let's finish your profile.");
     } catch (err) {
       toast.error(humanFirebaseError(err));
@@ -63,16 +86,44 @@ export default function Register() {
     if (form.password !== form.confirm) return toast.error("Passwords don't match");
     setBusy("email");
     try {
-      const { idToken, user } = await signUpWithEmail(form.email.trim(), form.password, form.full_name);
-      proceed(idToken, {
-        uid: user.uid, email: user.email, name: form.full_name, picture: null,
-        login_method: "email", email_verified: false,
-      });
-      toast.success("Account created — let's finish your profile.");
+      const { user } = await signUpWithEmail(form.email.trim(), form.password, form.full_name);
+      setEmailUser(user);
+      setMode("verifying");
+      toast.success("Verification email sent. Please check your inbox.");
+      // Poll Firebase every 3 s so the moment the user clicks the link
+      // and returns here we auto-detect and progress.
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await reloadFirebaseUser();
+          if (res.emailVerified) proceedVerified(res.idToken, res.user);
+        } catch (_) { /* transient — keep polling */ }
+      }, 3000);
     } catch (err) {
       toast.error(humanFirebaseError(err));
     } finally {
       setBusy(null);
+    }
+  };
+
+  const manualCheck = async () => {
+    setChecking(true);
+    try {
+      const res = await reloadFirebaseUser();
+      if (res.emailVerified) proceedVerified(res.idToken, res.user);
+      else toast.error("Not verified yet. Check your inbox (and spam folder) and click the link.");
+    } catch (err) {
+      toast.error(humanFirebaseError(err) || "Please sign in again.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const doResend = async () => {
+    try {
+      await resendVerificationEmail();
+      toast.success("Verification email resent.");
+    } catch (err) {
+      toast.error(humanFirebaseError(err));
     }
   };
 
@@ -82,11 +133,14 @@ export default function Register() {
     <div className="min-h-screen bg-white">
       <div className="rw-phone rw-safe-top rw-safe-bottom min-h-screen px-6 py-6" data-testid="register-page">
         <Logo size="sm" />
-        <div className="mt-10 rw-rise">
-          <p className="rw-eyebrow">Start your journey</p>
-          <h1 className="mt-1 rw-serif text-4xl text-foreground">Create your account.</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Takes 60 seconds. No OTP required.</p>
-        </div>
+
+        {mode !== "verifying" && (
+          <div className="mt-10 rw-rise">
+            <p className="rw-eyebrow">Start your journey</p>
+            <h1 className="mt-1 rw-serif text-4xl text-foreground">Create your account.</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Takes 60 seconds. Email verification required.</p>
+          </div>
+        )}
 
         {mode === "choose" && (
           <div className="mt-8 space-y-3">
@@ -144,6 +198,58 @@ export default function Register() {
               ← Back to options
             </button>
           </form>
+        )}
+
+        {mode === "verifying" && (
+          <div className="mt-10 rw-rise" data-testid="register-verify-screen">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[hsl(var(--rw-sky-soft))] text-[hsl(var(--rw-royal))]">
+              <Mail className="h-8 w-8" />
+            </div>
+            <h1 className="mt-4 rw-serif text-3xl text-center">Verify your email</h1>
+            <p className="mt-2 text-center text-sm text-muted-foreground">
+              We&apos;ve sent a verification link to{" "}
+              <span className="font-semibold text-foreground">{emailUser?.email}</span>.
+              Please click it to activate your account.
+            </p>
+            <p className="mt-1 text-center text-xs text-muted-foreground">
+              Your RIYORA profile, Member ID, Referral ID and wallet are created
+              only after your email is verified.
+            </p>
+
+            <button
+              onClick={manualCheck}
+              disabled={checking}
+              className="rw-btn-pill rw-btn-primary mt-6 w-full"
+              data-testid="register-verify-check-btn"
+            >
+              {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              I&apos;ve verified — continue
+            </button>
+
+            <button
+              onClick={doResend}
+              className="mt-3 w-full rounded-full border border-neutral-200 py-3 text-sm font-semibold text-foreground hover:bg-neutral-50"
+              data-testid="register-verify-resend-btn"
+            >
+              <RefreshCw className="mr-2 inline h-4 w-4" />
+              Resend verification email
+            </button>
+
+            <p className="mt-6 text-center text-xs text-muted-foreground">
+              Wrong email?{" "}
+              <button
+                onClick={() => {
+                  if (pollRef.current) clearInterval(pollRef.current);
+                  setEmailUser(null);
+                  setMode("email");
+                }}
+                className="font-semibold text-[hsl(var(--rw-royal))]"
+                data-testid="register-verify-back-btn"
+              >
+                Use a different one
+              </button>
+            </p>
+          </div>
         )}
       </div>
     </div>

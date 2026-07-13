@@ -6,8 +6,10 @@ def user_to_public(doc: dict) -> dict:
         "id": str(doc.get("_id")),
         "full_name": doc["full_name"],
         "mobile": doc["mobile"],
-        "state": doc["state"],
-        "city": doc["city"],
+        "state": doc.get("state") or "",
+        "district": doc.get("district") or "",
+        "city": doc.get("city") or "",
+        "pincode": doc.get("pincode") or "",
         "role": doc.get("role", "user"),
         "membership_id": doc["membership_id"],
         "referral_id": doc["membership_id"],  # own referral id == own membership id
@@ -23,6 +25,17 @@ def user_to_public(doc: dict) -> dict:
         "last_login_at": doc.get("last_login_at"),
         "created_at": doc["created_at"],
         "updated_at": doc["updated_at"],
+        # Editable extended profile — surfaced so the /auth/me response feeds
+        # the profile edit screen without a second round-trip.
+        "dob": doc.get("dob"),
+        "gender": doc.get("gender"),
+        "address": doc.get("address"),
+        "profession": doc.get("profession"),
+        "blood_group": doc.get("blood_group"),
+        "emergency_contact": doc.get("emergency_contact"),
+        "name_pronunciation": doc.get("name_pronunciation"),
+        "about_me": doc.get("about_me"),
+        "joining_date": doc.get("joining_date") or doc.get("created_at"),
     }
 
 

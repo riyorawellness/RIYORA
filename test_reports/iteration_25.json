@@ -1,0 +1,73 @@
+{
+  "summary": "Iter25 — profile-editing + admin-approved change-request workflow + email-verification gate + legacy migration UI removal. 14/15 backend tests PASS (pytest), all critical frontend flows PASS (Playwright). One backend bug: serializer user_to_public() omits profile_photo_url so PATCH round-trip and /auth/me don't return the saved photo. BRV L10+L11 green. Firebase register invalid-token 401 confirmed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PATCH /api/users/me & GET /api/auth/me",
+        "issue": "user_to_public() in /app/backend/app/utils/serializers.py returns 'photo_url' (Firebase-provided) but NOT 'profile_photo_url' (the field written by ProfileUpdate). Frontend EditProfile.jsx reads user.profile_photo_url on line ~144 and will always render empty even after a successful save. The value IS persisted in Mongo — just never surfaced. Add `profile_photo_url: doc.get('profile_photo_url')` next to the other extended-profile keys (line 30-38).",
+        "priority": "MEDIUM"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "EditProfile",
+        "issue": "React console warning: 'A component is changing an uncontrolled input to be controlled.' — one or more inputs are receiving undefined→string. Initialise form state with '' fallbacks in useState (e.g., dob: user.dob ?? ''). Cosmetic; does not break functionality.",
+        "selector": "[data-testid='edit-profile-page']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verification_checks": [
+    {"claim": "PATCH /api/users/me updates soft fields and persists", "result": "PASS (13/13 soft fields verified via GET /auth/me except profile_photo_url which is stored but not surfaced — see backend_issues.minor)"},
+    {"claim": "PATCH /api/users/me silently ignores email/mobile fields", "result": "PASS"},
+    {"claim": "PATCH /api/users/me returns 401/403 unauthenticated", "result": "PASS (401)"},
+    {"claim": "POST /users/me/change-request validates email + mobile format (400)", "result": "PASS"},
+    {"claim": "POST /users/me/change-request returns 409 on second pending same-field", "result": "PASS"},
+    {"claim": "GET /users/me/change-requests lists submitted", "result": "PASS"},
+    {"claim": "GET /admin/change-requests returns items+pending count and filter=pending works", "result": "PASS"},
+    {"claim": "Admin approve WITHOUT admin_password → 400/422", "result": "PASS (422 from Pydantic)"},
+    {"claim": "Admin approve WITH WRONG admin_password → 401 'Incorrect admin password.'", "result": "PASS"},
+    {"claim": "Admin approve WITH CORRECT admin_password → 200 status:approved and email/mobile updated", "result": "PASS"},
+    {"claim": "Second approve on same request → 409 already approved", "result": "PASS"},
+    {"claim": "Admin reject requires password (same gate); user's mobile UNCHANGED on reject", "result": "PASS"},
+    {"claim": "Firebase register with invalid id_token → 401", "result": "PASS"},
+    {"claim": "GET /admin/qa/brv overall PASS with L10 + L11 both passing", "result": "PASS"},
+    {"claim": "/login page has NO legacy 'Existing RIYORA member' / 'Link your old account' text and NO login-link-existing testid", "result": "PASS (grep returns 0 in src, DOM does not contain)"},
+    {"claim": "/link-account route unreachable (renders no legacy content)", "result": "PASS"},
+    {"claim": "/register email/password shows verify-email screen after Firebase signup succeeds (register-verify-screen testid + I've verified + Resend buttons wired in Register.jsx)", "result": "STATIC-PASS (verified via source: 3 testids present, mode='verify' block renders after firebase createUser). Live end-to-end blocked by Firebase unauthorized-domain in sandbox — expected."},
+    {"claim": "/app/profile shows Edit + Change-email/mobile buttons; Edit navigates to /app/profile/edit (no 'coming next' toast)", "result": "PASS"},
+    {"claim": "/app/profile/edit renders form with editable fields + locked identity grid (membership_id RW236145 shown as text)", "result": "PASS"},
+    {"claim": "/app/profile/edit save flows back to /app/profile", "result": "PASS"},
+    {"claim": "/app/profile/change-request submits new pending row, visible in cr-list", "result": "PASS"},
+    {"claim": "/admin/change-requests approve modal (acr-modal) — wrong password keeps modal open (error toast); correct password closes modal + removes row", "result": "PASS"},
+    {"claim": "/admin/change-requests reject flow with password gate", "result": "PASS via backend pytest (test_reject_flow_requires_password). Frontend UI reject path shares the same modal component as approve — the approve UI test covers the password-gate branch."}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_profile_editing.py",
+    "/app/test_reports/pytest/iter25_results.xml"
+  ],
+  "action_items": [
+    "Add `profile_photo_url: doc.get('profile_photo_url')` to user_to_public() in /app/backend/app/utils/serializers.py (line ~38) so PATCH/PROFILE responses expose the persisted photo URL. Currently stored in Mongo but never returned, so EditProfile form always renders it empty on reload.",
+    "OPTIONAL: In EditProfile.jsx initialise form fields with `?? ''` fallbacks to silence the React 'uncontrolled → controlled' console warning."
+  ],
+  "critical_code_review_comments": [
+    "Serializer omission (profile_photo_url) — REAL functional bug: user changes a field, refresh, edit form is blank again because /auth/me never returned the new value. Silent user-facing regression.",
+    "profile_editing.py:64 `updates` still contains all Pydantic-passed keys including any that already equal current values — the write is harmless but the audit `diff` correctly filters, so log_action is only called with real changes. OK.",
+    "profile_editing.py:69 mirror_keys deliberately excludes `profession` (only `occupation` mirrors to legacy /profiles) — fine but two schemas contain both `occupation` and `profession`, so a user picking `profession` never mirrors to /profiles. Confirm this is intentional (profession is the new canonical field; occupation is legacy).",
+    "profile_editing.py:114 dup query excludes self by _id, so a user submitting their own current mobile/email as new_value would still pass validation and create a no-op pending request. Consider rejecting if new_value == current_value.",
+    "AdminApprovalBody requires admin_password (min_length=1) — Pydantic 422 on missing. The route returns 400 for empty from _reverify_admin, but Pydantic catches it first. Both are documented in the review request as 'expected 400/422'. Acceptable."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "93% (14/15; 1 test skipped by design; 1 fail = profile_photo_url serialization gap)", "frontend": "100% of testable critical flows"},
+  "test_credentials": "Dummy tester mobile 8888888888 / tester123 (legacy path — real JWT). Admin mobile 9999999999 / Admin@12345.",
+  "seed_data_creation": "Left behind: 2 change_request rows for RW236145 (one approved email change, one rejected mobile change, and 1 additional pending mobile CR from UI submit that was subsequently approved). Non-destructive — safe to leave.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All flows tested with real backend + real UI via injected legacy-path JWT (Firebase Google popup can't be exercised in sandbox — unauthorized-domain). If retesting profile_photo_url fix, PATCH /api/users/me with {profile_photo_url: 'https://x.com/y.jpg'} then GET /auth/me — value must be echoed. The user RW236145 email was mutated during tests via admin-approved CR, so it may no longer be null. Re-authenticate via `curl POST /api/auth/login {mobile:8888888888,password:tester123}` to get a fresh 15-min JWT before running any UI test.",
+  "rca_of_the_issue": "profile_photo_url gap: PATCH endpoint (profile_editing.py:64) writes all keys from ProfileUpdate.model_dump(exclude_none=True) to Mongo — profile_photo_url included. However, both the PATCH response and GET /auth/me use user_to_public() which was updated to expose dob/gender/address/profession/blood_group/emergency_contact/name_pronunciation/about_me but the developer forgot to add profile_photo_url (there is a separate `photo_url` from Firebase's photoURL claim that IS returned — likely the source of confusion). Fix: one-liner insertion of profile_photo_url into serializers.py:38ish."
+}

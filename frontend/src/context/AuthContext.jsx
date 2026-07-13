@@ -94,6 +94,22 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
+  const updateMyProfile = async (patch) => {
+    const { data } = await api.patch("/users/me", patch);
+    setUser(data);
+    return data;
+  };
+
+  const submitChangeRequest = async (payload) => {
+    const { data } = await api.post("/users/me/change-request", payload);
+    return data;
+  };
+
+  const listMyChangeRequests = async () => {
+    const { data } = await api.get("/users/me/change-requests");
+    return data;
+  };
+
   const registerUser = async () => {
     throw new Error("Legacy register removed. Use registerWithFirebase instead.");
   };
@@ -142,6 +158,9 @@ export function AuthProvider({ children }) {
     syncFirebaseToken,
     registerWithFirebase,
     linkExistingWithFirebase,
+    updateMyProfile,
+    submitChangeRequest,
+    listMyChangeRequests,
     logout,
     refreshProfile,
   };

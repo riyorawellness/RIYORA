@@ -179,12 +179,6 @@ export default function Login() {
         )}
 
         <p className="mt-8 text-center text-xs text-muted-foreground">
-          Existing RIYORA member (registered before Feb&nbsp;2026)?{" "}
-          <Link to="/link-account" className="font-semibold text-[hsl(var(--rw-royal))]" data-testid="login-link-existing">
-            Link your old account
-          </Link>
-        </p>
-        <p className="mt-3 text-center text-xs text-muted-foreground">
           Administrator?{" "}
           <Link
             to="/admin/login"
