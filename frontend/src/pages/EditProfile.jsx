@@ -20,25 +20,39 @@ import { formatApiError } from "@/lib/api";
 export default function EditProfile() {
   const nav = useNavigate();
   const { user, updateMyProfile } = useAuth();
-  const [form, setForm] = useState({});
+  const [form, setForm] = useState({
+    name_pronunciation: "",
+    gender: "",
+    dob: "",
+    address: "",
+    state: "",
+    district: "",
+    city: "",
+    pincode: "",
+    profession: "",
+    blood_group: "",
+    profile_photo_url: "",
+    emergency_contact: "",
+    about_me: "",
+  });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     setForm({
-      name_pronunciation: user.name_pronunciation || "",
-      gender: user.gender || "",
-      dob: user.dob || "",
-      address: user.address || "",
-      state: user.state || "",
-      district: user.district || "",
-      city: user.city || "",
-      pincode: user.pincode || "",
-      profession: user.profession || "",
-      blood_group: user.blood_group || "",
-      profile_photo_url: user.photo_url || "",
-      emergency_contact: user.emergency_contact || "",
-      about_me: user.about_me || "",
+      name_pronunciation: user.name_pronunciation ?? "",
+      gender: user.gender ?? "",
+      dob: user.dob ?? "",
+      address: user.address ?? "",
+      state: user.state ?? "",
+      district: user.district ?? "",
+      city: user.city ?? "",
+      pincode: user.pincode ?? "",
+      profession: user.profession ?? "",
+      blood_group: user.blood_group ?? "",
+      profile_photo_url: user.profile_photo_url ?? user.photo_url ?? "",
+      emergency_contact: user.emergency_contact ?? "",
+      about_me: user.about_me ?? "",
     });
   }, [user]);
 

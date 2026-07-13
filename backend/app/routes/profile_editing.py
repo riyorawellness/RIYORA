@@ -51,6 +51,13 @@ async def edit_my_profile(
     if not updates:
         raise HTTPException(400, "No fields provided.")
 
+    # Canonicalise the photo field. Frontend sends `profile_photo_url`
+    # (matches the /profiles collection), but the users collection stores
+    # it as `photo_url` (populated originally from Firebase). Keep both in
+    # sync so /auth/me and the /profiles doc render consistently.
+    if "profile_photo_url" in updates:
+        updates["photo_url"] = updates["profile_photo_url"]
+
     # Diff for audit log — record only fields that actually changed.
     diff = {}
     for k, v in updates.items():

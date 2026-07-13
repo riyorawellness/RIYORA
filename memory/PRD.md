@@ -502,6 +502,55 @@ Complete production-ready deployment package under `/app/deploy/`:
 All 4 shell scripts pass `bash -n` syntax check. `docker-compose.yml` passes YAML lint. Ready for one-command `./scripts/deploy.sh` from any Ubuntu 22.04+ VPS.
 
 
+## Delivered on 2026-07-13 (Feb 2026 UX + Auth batch)
+
+### 1. Profile editing (inline, replaces placeholder)
+- `PATCH /api/users/me` — user updates own soft fields (name pronunciation, gender, dob, address, state, district, city, pincode, blood_group, profession, emergency_contact, about_me, profile_photo_url). Diff-logged to `activity_log`.
+- Identity fields (full name, mobile, email, member ID, referral ID, sponsor, joining date) remain read-only.
+- Frontend: new `EditProfile.jsx` at `/app/profile/edit`, wired via `AuthContext.updateMyProfile`.
+
+### 2. Email / Mobile change-request workflow (admin-approved)
+- **User side** — `POST /api/users/me/change-request`, `GET /api/users/me/change-requests`. One pending request per (user, field). Format + duplicate validation.
+- **Admin side** — `GET /api/admin/change-requests[?status=pending|approved|rejected]`, `POST /admin/change-requests/{id}/approve|reject`.
+- **Admin password re-verification required** for both approve and reject (bearer token alone is insufficient — defense in depth).
+- Notifications inserted for admin (on submit) + user (on approve/reject).
+- Full audit trail via `activity_log` (submit / approve / reject entries).
+- Approved email change resets `email_verified=false` on the user record.
+- Frontend: `ChangeRequest.jsx` at `/app/profile/change-request`, `AdminChangeRequests.jsx` at `/admin/change-requests` with password modal.
+
+### 3. Email verification gate on Firebase register
+- `POST /api/auth/firebase/register` returns 403 when `login_method='email'` and `email_verified=false`. Google logins are already verified so pass through unchanged.
+- Frontend: `Register.jsx` now shows a `verify email` screen after email/password signup with polling every 3s + "I've verified" button + "Resend verification email".
+- Member ID, Referral ID, wallet, sponsor mapping, and profile are created ONLY after email verification succeeds.
+
+### 4. Legacy migration UI removed
+- Removed `/link-account` route and `LinkAccount.jsx` page.
+- Removed "Existing RIYORA member (registered before Feb 2026)" block from `Login.jsx`.
+- Backend `/auth/firebase/link-existing` endpoint retained for admin/support use but no longer surfaced in the UI.
+
+### 5. BRV additions
+- **L10** — Change-request workflow (user PATCH + admin approve/reject + password gate).
+- **L11** — Email verification gate (asserts firebase/register refuses unverified emails).
+- BRV total: 47 rules · **overall PASS**.
+
+### 6. Deployment kit fixes (from live VPS deploy)
+- `deploy/frontend/Dockerfile` — nginx-spa.conf now inlined via heredoc (was failing because it lived outside the frontend build context).
+- `deploy/scripts/deploy.sh` — auto-chowns `backend/firebase-admin.json` to `1000:1000 640` so the non-root container user can read it (fixes `PermissionError` at Firebase init).
+- `deploy/scripts/verify.sh` — split into 6 **critical** checks (rollback on fail) and 4 **QA-tier** checks (warn only, no rollback). Prevents healthy builds being rolled back for cosmetic verification hiccups.
+- `deploy/scripts/certbot-init.sh` — defensive cleanup + pre-write of `le-bootstrap.conf` before Docker mount (fixes race where Docker created the config as an empty directory).
+
+### 7. Firebase Google Sign-In `auth/unauthorized-domain`
+- **Root cause**: production domain (`app.riyorawellness.com`) was not in Firebase Console → Authentication → Settings → Authorized Domains.
+- **Fix**: user must add the domain in Firebase Console (external configuration — not code). Post-fix Google sign-in works end-to-end.
+- `humanFirebaseError()` in `frontend/src/lib/firebase.js` now surfaces a clear message for this specific error code.
+
+### Files changed / added
+- **Backend**: `routes/profile_editing.py` (new, 300 lines), `firebase_auth_routes.py` (email-verified gate), `models/phase2.py` (ProfileUpdate expanded, new ChangeRequestCreate + AdminApprovalBody), `services/brv.py` (L10 + L11 rules), `utils/serializers.py` (photo_url alias + new profile fields), `server.py` (router wiring).
+- **Frontend**: `pages/EditProfile.jsx` (new), `pages/ChangeRequest.jsx` (new), `pages/AdminChangeRequests.jsx` (new), `pages/Register.jsx` (verify-email flow), `pages/Login.jsx` (legacy block removed), `pages/Profile.jsx` (real edit + change-request buttons), `context/AuthContext.jsx` (new methods), `lib/firebase.js` (sendEmailVerification + reload helpers), `components/AdminShell.jsx` (new nav item), `App.js` (new routes, /link-account removed).
+- **Deployment**: `deploy/frontend/Dockerfile`, `deploy/scripts/{deploy,verify,certbot-init}.sh`.
+
+
+
 
 
 
