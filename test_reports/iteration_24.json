@@ -1,0 +1,85 @@
+{
+  "summary": "Static config/shell validation of the .gitignore + deploy.sh fix that ensures deploy/.env.example is tracked in git and deploy.sh auto-bootstraps a .env when missing. All 8 review-request claims verified via bash/git/grep — 100% pass. No live-secret leakage found in any tracked file.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verification_checks": [
+    {
+      "claim": "/app/deploy/.env.example exists and contains all required RIYORA+Firebase+Razorpay+Mongo+Admin vars",
+      "result": "PASS",
+      "evidence": "File exists (3082 bytes). Contains DOMAIN, LETSENCRYPT_EMAIL, REACT_APP_BACKEND_URL, CORS_ORIGINS, MONGO_ROOT_USER, MONGO_ROOT_PASSWORD, DB_NAME, JWT_SECRET, JWT_ACCESS_TTL_MIN, JWT_REFRESH_TTL_DAYS, ADMIN_MOBILE, ADMIN_PASSWORD, FIREBASE_ADMIN_CREDENTIALS_PATH, FIREBASE_PROJECT_ID, REACT_APP_FIREBASE_* (6 keys), RAZORPAY_MOCK_MODE, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET, COMPANY_*, LOG_LEVEL, ENABLE_HEALTH_CHECK."
+    },
+    {
+      "claim": "git ls-files deploy/.env.example returns the path (tracked)",
+      "result": "PASS",
+      "evidence": "Output: 'deploy/.env.example'  exit=0"
+    },
+    {
+      "claim": "git check-ignore -v deploy/.env.example exits non-zero (NOT ignored)",
+      "result": "PASS",
+      "evidence": "No output; exit=1 (not matched by any ignore pattern → not ignored)."
+    },
+    {
+      "claim": "bash -n /app/deploy/scripts/deploy.sh returns 0 (syntax valid)",
+      "result": "PASS",
+      "evidence": "Exit code 0, no syntax errors."
+    },
+    {
+      "claim": "deploy.sh auto-copies .env.example → .env when .env is missing (grep 'cp .env.example .env')",
+      "result": "PASS",
+      "evidence": "Line 31: '    cp .env.example .env' (inside the [ ! -f .env ] → [ -f .env.example ] branch, lines 29-34)."
+    },
+    {
+      "claim": "deploy.sh writes a starter .env when BOTH .env and .env.example are missing (grep 'Starter .env written')",
+      "result": "PASS",
+      "evidence": "Line 74: warn \"Starter .env written. Now open it and fill every CHANGE_ME_* value:\" — inside the else branch (lines 36-77) that uses a heredoc `cat > .env <<'ENVEOF'`."
+    },
+    {
+      "claim": "Starter .env heredoc contains DOMAIN, JWT_SECRET, MONGO_ROOT_PASSWORD, ADMIN_PASSWORD, FIREBASE_ADMIN_CREDENTIALS_PATH, RAZORPAY_KEY_ID, RAZORPAY_WEBHOOK_SECRET",
+      "result": "PASS",
+      "evidence": "All 7 keys found: DOMAIN (L39), MONGO_ROOT_PASSWORD (L45), JWT_SECRET (L48), ADMIN_PASSWORD (L53), FIREBASE_ADMIN_CREDENTIALS_PATH (L55), RAZORPAY_KEY_ID (L65), RAZORPAY_WEBHOOK_SECRET (L67). Bonus keys also present: FIREBASE_PROJECT_ID, all REACT_APP_FIREBASE_* keys, RAZORPAY_KEY_SECRET, CORS_ORIGINS, REACT_APP_BACKEND_URL, etc."
+    },
+    {
+      "claim": "No live secrets (rzp_live_TCVL, AIzaSyDLd68, 547595Ape, BEGIN PRIVATE KEY) present in any tracked file",
+      "result": "PASS",
+      "evidence": "`git grep -l` for each of the 4 patterns returned zero matches. Also verified /app/memory/PRD.md (untracked) has none of these substrings."
+    }
+  ],
+  "gitignore_negation_rules_verified": {
+    "rules_present_lines_95_100": [
+      ".env",
+      ".env.*",
+      "!.env.example",
+      "!deploy/.env.example",
+      "*.env",
+      "!*.env.example"
+    ],
+    "explanation": "Root .gitignore lines 95-100 correctly ignore .env / .env.* / *.env while whitelisting anything matching *.env.example (covers root, backend, frontend, deploy variants)."
+  },
+  "observations": [
+    "Only deploy/.env.example is currently tracked in git. The disk also has /app/.env.example, /app/backend/.env.example and /app/frontend/.env.example — none of these are gitignored (matched by !*.env.example negation) but they have not been `git add`ed yet. Not a blocker for the bug fix, but main agent may want to git-add them so the templates ship with the repo too.",
+    "deploy.sh Step 1 correctly exits 1 (non-zero) after bootstrapping .env in either branch (auto-copy or starter heredoc), forcing the operator to edit before re-running — good UX.",
+    "Starter heredoc's DOMAIN uses 'app.YOURDOMAIN.com' (not the real riyorawellness.com), which is correct — placeholder only.",
+    "The CHANGE_ME_* sentinels are validated by the loop at deploy.sh:88-96 which dies if any required var is empty or still starts with 'CHANGE_ME' — so operator cannot accidentally deploy with placeholders."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "OPTIONAL: Consider `git add /app/.env.example /app/backend/.env.example /app/frontend/.env.example && git commit` so those templates also ship in the repo. The .gitignore negation already permits it; they're just untracked right now.",
+    "OPTIONAL: deploy.sh line 80 checks `../backend/firebase-admin.json` (relative to /app/deploy). Fine for the expected layout /opt/riyora/{backend,deploy}, but if operators clone directly into /opt/riyora with a different structure this will fail — matches the documented layout in DEPLOYMENT.md so acceptable."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "Not applicable — static config validation.",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "This iteration was a pure static/git verification of a .gitignore + deploy.sh bug fix. All 8 acceptance criteria from the review request were verified with bash/git/grep. No runtime services were exercised. If further deploy testing is requested, the actual docker-compose flow would need a real VPS or a docker-in-docker sandbox — not something this container can safely run.",
+  "rca_of_the_issue": "Root cause of the original bug: `/app/.gitignore` had the broad rule `.env.*` (line 96) which matched `.env.example` and silently prevented it from ever being committed. Users cloning the repo on a fresh VPS had no template to copy from. Fix applied by main agent: added negation lines `!.env.example`, `!deploy/.env.example`, `!*.env.example` (lines 97, 98, 100 of .gitignore). Verified `deploy/.env.example` is now tracked (git ls-files) and not ignored (git check-ignore exits 1). Additionally hardened deploy.sh with a two-tier bootstrap: (1) if .env.example exists → auto-copy to .env and prompt; (2) if BOTH missing → write an inline starter .env heredoc with all CHANGE_ME_* placeholders. This means even a broken clone (where somehow .env.example is still missing) will not leave the operator stuck. Both branches exit 1 to force manual review before re-running deploy. All acceptance criteria pass."
+}

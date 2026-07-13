@@ -94,7 +94,10 @@ frontend/node_modules/.cache/default-development/4.pack
 frontend/node_modules/.cache/default-development/13.pack
 .env
 .env.*
+!.env.example
+!deploy/.env.example
 *.env
+!*.env.example
 credentials.json
 *.key
 .credentials

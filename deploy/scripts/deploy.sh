@@ -24,7 +24,59 @@ cd "$ROOT"
 step "1. Verifying prerequisites"
 command -v docker >/dev/null || die "docker not installed"
 docker compose version >/dev/null 2>&1 || die "docker compose plugin not installed"
-[ -f .env ] || die "Missing .env — copy .env.example and fill it in"
+
+# .env is missing → try to bootstrap from .env.example, else emit a starter.
+if [ ! -f .env ]; then
+  if [ -f .env.example ]; then
+    cp .env.example .env
+    warn "No .env found — copied .env.example → .env. Now open it and fill in every CHANGE_ME_* value:"
+    warn "    nano .env"
+    exit 1
+  else
+    warn "Neither .env nor .env.example exists. Writing a starter .env to $(pwd)/.env"
+    cat > .env <<'ENVEOF'
+# RIYORA production .env — fill in every CHANGE_ME_* value below.
+DOMAIN=app.YOURDOMAIN.com
+LETSENCRYPT_EMAIL=you@example.com
+REACT_APP_BACKEND_URL=https://app.YOURDOMAIN.com
+CORS_ORIGINS=https://app.YOURDOMAIN.com
+
+MONGO_ROOT_USER=admin
+MONGO_ROOT_PASSWORD=CHANGE_ME_16CHAR_STRONG_MONGO_PASSWORD
+DB_NAME=riyora_prod
+
+JWT_SECRET=CHANGE_ME_RUN__openssl_rand_hex_64
+JWT_ACCESS_TTL_MIN=15
+JWT_REFRESH_TTL_DAYS=7
+
+ADMIN_MOBILE=9999999999
+ADMIN_PASSWORD=CHANGE_ME_STRONG_ADMIN_PASSWORD
+
+FIREBASE_ADMIN_CREDENTIALS_PATH=/app/firebase-admin.json
+FIREBASE_PROJECT_ID=CHANGE_ME_FIREBASE_PROJECT_ID
+REACT_APP_FIREBASE_API_KEY=CHANGE_ME_FIREBASE_API_KEY
+REACT_APP_FIREBASE_AUTH_DOMAIN=CHANGE_ME.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=CHANGE_ME_FIREBASE_PROJECT_ID
+REACT_APP_FIREBASE_STORAGE_BUCKET=CHANGE_ME.firebasestorage.app
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=CHANGE_ME
+REACT_APP_FIREBASE_APP_ID=CHANGE_ME
+
+RAZORPAY_MOCK_MODE=false
+RAZORPAY_KEY_ID=CHANGE_ME_rzp_live_xxxxxxxx
+RAZORPAY_KEY_SECRET=CHANGE_ME_RAZORPAY_SECRET
+RAZORPAY_WEBHOOK_SECRET=CHANGE_ME_FROM_RAZORPAY_DASHBOARD
+
+COMPANY_NAME=RIYORA Wellness
+SUPPORT_EMAIL=support@example.com
+LOG_LEVEL=INFO
+ENABLE_HEALTH_CHECK=true
+ENVEOF
+    warn "Starter .env written. Now open it and fill every CHANGE_ME_* value:"
+    warn "    nano .env"
+    exit 1
+  fi
+fi
+
 [ -f ../backend/firebase-admin.json ] || die "Missing backend/firebase-admin.json (upload from Firebase Console → Project Settings → Service Accounts)"
 [ -f ../backend/requirements.txt ] || die "backend/requirements.txt missing — is this the repo root?"
 ok "docker + env + firebase JSON found"
