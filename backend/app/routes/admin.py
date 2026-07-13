@@ -17,14 +17,10 @@ from app.models.schemas import (
     AdminPublic,
     LoginRequest,
     MessageResponse,
-    ResetPasswordRequest,
-    SendOtpRequest,
     TokenPair,
-    VerifyOtpRequest,
 )
 from app.utils.audit import log_action
 from app.core.security_mw import check_lockout, record_failed_login, reset_lockout
-from app.utils.otp import PURPOSE_FORGOT, consume_verified_otp, send_otp, verify_otp
 from app.utils.serializers import admin_to_public
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -62,40 +58,23 @@ async def admin_login(body: LoginRequest, database: AsyncIOMotorDatabase = Depen
     return {"admin": admin_to_public(admin), "tokens": tokens.model_dump()}
 
 
-@router.post("/send-otp", response_model=dict)
-async def admin_send_otp(body: SendOtpRequest, database: AsyncIOMotorDatabase = Depends(db)):
-    if body.purpose != "forgot_password":
-        raise HTTPException(status_code=400, detail="Only forgot_password OTP supported for admin")
-    if not await database.admins.find_one({"mobile": body.mobile, "deleted_at": None}):
-        raise HTTPException(status_code=404, detail="Admin not found")
-    result = await send_otp(database, body.mobile, PURPOSE_FORGOT)
-    if not result["ok"]:
-        raise HTTPException(status_code=429, detail=result["error"])
-    return {"message": "OTP sent", "expires_in_seconds": result["expires_in_seconds"], "dev_code": result.get("dev_code")}
-
-
-@router.post("/verify-otp", response_model=MessageResponse)
-async def admin_verify_otp(body: VerifyOtpRequest, database: AsyncIOMotorDatabase = Depends(db)):
-    ok = await verify_otp(database, body.mobile, body.purpose, body.code)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
-    return MessageResponse(message="OTP verified")
-
-
-@router.post("/reset-password", response_model=MessageResponse)
-async def admin_reset_password(body: ResetPasswordRequest, database: AsyncIOMotorDatabase = Depends(db)):
-    ok = await consume_verified_otp(database, body.mobile, PURPOSE_FORGOT)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Mobile OTP not verified")
-    admin = await database.admins.find_one({"mobile": body.mobile, "deleted_at": None})
-    if not admin:
-        raise HTTPException(status_code=404, detail="Admin not found")
+@router.post("/reset-password-self", response_model=MessageResponse)
+async def admin_reset_own_password(
+    new_password: str,
+    current: dict = Depends(get_current_admin),
+    database: AsyncIOMotorDatabase = Depends(db),
+):
+    """Admins reset their OWN password while already signed in (no OTP)."""
+    if len(new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     await database.admins.update_one(
-        {"_id": admin["_id"]},
-        {"$set": {"password_hash": hash_password(body.new_password), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"_id": current["_id"]},
+        {"$set": {"password_hash": hash_password(new_password), "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
-    await database.refresh_tokens.update_many({"user_id": body.mobile, "role": "admin"}, {"$set": {"revoked": True}})
-    return MessageResponse(message="Admin password updated")
+    await database.refresh_tokens.update_many(
+        {"user_id": current["mobile"], "role": "admin"}, {"$set": {"revoked": True}}
+    )
+    return MessageResponse(message="Admin password updated. Please sign in again.")
 
 
 @router.get("/profile", response_model=AdminPublic)

@@ -6,34 +6,17 @@ export const TID = {
   welcomeCtaLogin: "welcome-cta-login",
   welcomeCtaRegister: "welcome-cta-register",
 
-  // Auth (existing flows kept)
+  // Auth (Firebase — 2026-02 migration)
   loginMobile: "login-mobile-input",
   loginPassword: "login-password-input",
   loginSubmit: "login-submit-btn",
   loginForgot: "login-forgot-link",
 
-  regMobile: "reg-mobile-input",
-  regSendOtp: "reg-send-otp-btn",
-  regOtp: "reg-otp-input",
-  regVerifyOtp: "reg-verify-otp-btn",
   regFullName: "reg-full-name-input",
-  regState: "reg-state-input",
-  regCity: "reg-city-input",
   regReferral: "reg-referral-input",
   regReferralCheck: "reg-referral-check-btn",
   regSponsorInfo: "reg-sponsor-info",
-  regPassword: "reg-password-input",
-  regConfirmPassword: "reg-confirm-password-input",
   regSubmit: "reg-submit-btn",
-  regConfirm: "reg-confirm-btn",
-
-  fpMobile: "fp-mobile-input",
-  fpSendOtp: "fp-send-otp-btn",
-  fpOtp: "fp-otp-input",
-  fpVerify: "fp-verify-btn",
-  fpNewPassword: "fp-new-password-input",
-  fpConfirmPassword: "fp-confirm-password-input",
-  fpSubmit: "fp-submit-btn",
 
   // Bottom nav
   navHome: "nav-home",

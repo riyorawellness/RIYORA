@@ -47,8 +47,6 @@ export default function AdminLiveCheck() {
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
-  const [msg91Mobile, setMsg91Mobile] = useState("");
-  const [sending, setSending] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -99,34 +97,11 @@ export default function AdminLiveCheck() {
     }
   };
 
-  const sendMsg91 = async () => {
-    if (!msg91Mobile || msg91Mobile.length < 10) {
-      toast.error("Enter a 10-digit mobile number");
-      return;
-    }
-    setSending(true);
-    try {
-      const r = await api
-        .post("/admin/qa/live-check/msg91/dry-run", { mobile: msg91Mobile })
-        .then((x) => x.data);
-      if (r.dev_mode) {
-        toast.info(`Dev mode: dispatched code ${r.code_dev} (no real SMS sent)`);
-      } else {
-        toast.success("SMS dispatched via MSG91 — check the handset");
-      }
-    } catch (e) {
-      toast.error(formatApiError(e, "MSG91 send failed"));
-    } finally {
-      setSending(false);
-    }
-  };
-
   const copy = (val) => {
     navigator.clipboard?.writeText(String(val || "")).then(() => toast.success("Copied"));
   };
 
   const rzp = status?.razorpay;
-  const sms = status?.msg91;
 
   return (
     <div className="px-6 py-6" data-testid="admin-live-check-page">
@@ -217,47 +192,22 @@ export default function AdminLiveCheck() {
             )}
           </Card>
 
-          {/* MSG91 */}
-          <Card className="rw-card p-5" data-testid="live-check-msg91-card">
+          {/* Firebase */}
+          <Card className="rw-card p-5" data-testid="live-check-firebase-card">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquareText className="h-5 w-5 text-primary" />
-                <h2 className="rw-serif text-xl">MSG91 SMS OTP</h2>
+                <h2 className="rw-serif text-xl">Firebase Authentication</h2>
               </div>
-              <ModeChip mode={sms.status} />
+              <ModeChip mode={status?.firebase?.status === "live" ? "live" : "dev"} />
             </div>
             <div className="mt-3">
-              <Row label="OTP dev mode" value={sms.otp_dev_mode ? "true" : "false"} ok={!sms.otp_dev_mode} />
-              <Row label="Configured" value={sms.configured ? "yes" : "no"} ok={sms.configured} />
-              <Row label="Auth key" value={sms.auth_key_masked} mono />
-              <Row label="Template id" value={sms.template_id} mono />
-              <Row label="Sender id" value={sms.sender_id} mono />
+              <Row label="Admin SDK initialised" value={status?.firebase?.configured ? "yes" : "no"} ok={status?.firebase?.configured} testid="row-fb-configured" />
+              <Row label="Project id" value={status?.firebase?.project_id} mono testid="row-fb-project" />
+              <Row label="Endpoints" value="/auth/firebase/sync · /register · /link-existing" mono />
             </div>
-
-            <div className="mt-4">
-              <Label htmlFor="msg91-mobile" className="text-xs uppercase tracking-widest text-muted-foreground">
-                Send test OTP (code 424242)
-              </Label>
-              <div className="mt-1 flex items-center gap-2">
-                <Input
-                  id="msg91-mobile"
-                  placeholder="10-digit mobile"
-                  value={msg91Mobile}
-                  onChange={(e) => setMsg91Mobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
-                  data-testid="msg91-mobile-input"
-                />
-                <Button size="sm" onClick={sendMsg91} disabled={sending} data-testid="msg91-send-btn">
-                  {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                  Send
-                </Button>
-              </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                {sms.status === "live" ? (
-                  <>Dispatches a real SMS carrying diagnostic code <span className="font-mono">424242</span>.</>
-                ) : (
-                  <>Dev mode — no real SMS. Regular /auth/send-otp accepts code <span className="font-mono">123456</span>.</>
-                )}
-              </p>
+            <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-emerald-900">
+              Users sign in via Google or email/password on the frontend. The Firebase ID token is verified server-side before RIYORA mints its own JWT. No SMS OTP dependency.
             </div>
           </Card>
 
@@ -280,7 +230,7 @@ export default function AdminLiveCheck() {
 
             {events.length === 0 ? (
               <div className="mt-4 rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                No webhook events yet. Trigger a real payment or use Razorpay's dashboard "Send a test event" to verify connectivity.
+                No webhook events yet. Trigger a real payment or use the Razorpay dashboard test-event feature to verify connectivity.
               </div>
             ) : (
               <div className="mt-4 divide-y" data-testid="webhook-events-list">

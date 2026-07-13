@@ -7,6 +7,7 @@ import {
   getRefreshToken,
   setTokens,
 } from "@/lib/tokenStore";
+import { signOut as fbSignOut } from "@/lib/firebase";
 
 const AuthContext = createContext(null);
 
@@ -56,17 +57,45 @@ export function AuthProvider({ children }) {
   }, []);
 
   const loginUser = async (mobile, password) => {
+    // Legacy path — kept for backward compat during Phase 1. New logins
+    // should use signInWithFirebase() below.
     const { data } = await api.post("/auth/login", { mobile, password });
     setTokens("user", data.tokens);
     setUser(data.user);
     return data.user;
   };
 
-  const registerUser = async (payload) => {
-    const { data } = await api.post("/auth/register", payload);
+  /**
+   * Exchange a Firebase ID token for a RIYORA session.
+   * Returns:
+   *   { needs_registration: true, firebase_user: {...} }  → route to /complete-profile
+   *   { user, tokens }                                     → session established
+   */
+  const syncFirebaseToken = async (idToken) => {
+    const { data } = await api.post("/auth/firebase/sync", { id_token: idToken });
+    if (!data.needs_registration) {
+      setTokens("user", data.tokens);
+      setUser(data.user);
+    }
+    return data;
+  };
+
+  const registerWithFirebase = async (payload) => {
+    const { data } = await api.post("/auth/firebase/register", payload);
     setTokens("user", data.tokens);
     setUser(data.user);
     return data.user;
+  };
+
+  const linkExistingWithFirebase = async (payload) => {
+    const { data } = await api.post("/auth/firebase/link-existing", payload);
+    setTokens("user", data.tokens);
+    setUser(data.user);
+    return data.user;
+  };
+
+  const registerUser = async () => {
+    throw new Error("Legacy register removed. Use registerWithFirebase instead.");
   };
 
   const loginAdmin = async (mobile, password) => {
@@ -90,7 +119,11 @@ export function AuthProvider({ children }) {
     }
     clearRoleTokens(roleToKill);
     if (roleToKill === "admin") setAdmin(null);
-    else setUser(null);
+    else {
+      setUser(null);
+      // Also sign out from Firebase so next visit doesn't auto-restore.
+      try { await fbSignOut(); } catch (_) { /* ignore */ }
+    }
   };
 
   const refreshProfile = async () => {
@@ -106,6 +139,9 @@ export function AuthProvider({ children }) {
     loginUser,
     loginAdmin,
     registerUser,
+    syncFirebaseToken,
+    registerWithFirebase,
+    linkExistingWithFirebase,
     logout,
     refreshProfile,
   };

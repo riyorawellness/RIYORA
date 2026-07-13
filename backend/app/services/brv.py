@@ -95,16 +95,10 @@ async def _c_referral_tree_integrity(db):
     return ok, f"{orphans} orphans", "every node has a valid sponsor" if ok else "orphaned nodes found"
 
 
-async def _c_otp_ttl(db):
-    ttl_sec = settings.OTP_TTL_MIN * 60
-    ok = ttl_sec <= 300
-    return ok, f"{ttl_sec}s", "OTP TTL ≤ 5 minutes" if ok else "TTL too long"
-
-
 async def _c_password_hashed(db):
-    doc = await db.users.find_one({"deleted_at": None}, {"password_hash": 1})
+    doc = await db.users.find_one({"deleted_at": None, "password_hash": {"$type": "string"}}, {"password_hash": 1})
     if not doc:
-        return True, "no users", "skipped"
+        return True, "no legacy users", "skipped (Firebase manages passwords)"
     ok = str(doc.get("password_hash", "")).startswith("$2")
     return ok, "bcrypt$2*" if ok else "unhashed", "bcrypt used" if ok else "insecure password store"
 
@@ -377,13 +371,17 @@ async def _c_env_secrets(db):
 # ============================================================================
 
 
-async def _c_msg91_production(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
+async def _c_firebase_configured(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
     import os
-    dev = str(os.environ.get("OTP_DEV_MODE", "false")).lower() == "true"
-    if dev:
-        return False, "OTP_DEV_MODE=true", "MSG91 still in dev mode — set OTP_DEV_MODE=false"
-    key = bool(os.environ.get("MSG91_AUTH_KEY"))
-    return key, "auth_key set" if key else "auth_key missing", "production ready" if key else "MSG91_AUTH_KEY missing"
+    from app.services import firebase_auth as fb
+    cred_path = os.environ.get("FIREBASE_ADMIN_CREDENTIALS_PATH", "")
+    if not cred_path or not os.path.exists(cred_path):
+        return False, f"missing at {cred_path or '<unset>'}", "Set FIREBASE_ADMIN_CREDENTIALS_PATH and mount the service account JSON."
+    try:
+        fb._init()
+        return True, "admin SDK initialised", f"Project: {os.environ.get('FIREBASE_PROJECT_ID','<unset>')}"
+    except Exception as exc:  # noqa: BLE001
+        return False, "init failed", str(exc)
 
 
 async def _c_razorpay_live(_db: AsyncIOMotorDatabase) -> tuple[bool, str, str]:
@@ -491,7 +489,7 @@ def _build_rules() -> list[Rule]:
         Rule("R2",  "Registration",     "Unique membership ID",        "no duplicates",                _c_membership_unique),
         Rule("R3",  "Registration",     "Company root RW000000",       "exists as tree root",          _c_company_root),
         Rule("R4",  "Registration",     "Referral tree integrity",     "no orphan nodes",              _c_referral_tree_integrity),
-        Rule("R5",  "Registration",     "OTP TTL ≤ 5 min",             "settings.OTP_TTL_SECONDS ≤ 300",_c_otp_ttl),
+        Rule("R5",  "Registration",     "Firebase project configured",  "FIREBASE_PROJECT_ID + service account JSON present", _c_firebase_configured),
         Rule("R6",  "Registration",     "Password bcrypt hashed",      "$2 prefix",                    _c_password_hashed),
         Rule("R7",  "Registration",     "Admin seed exists",           "admin doc + hash",             _c_admin_seeded),
         # ---------- Program
@@ -533,7 +531,7 @@ def _build_rules() -> list[Rule]:
         Rule("O1",  "PWA/Ops",          "PWA manifest & SW",           "manifest.json + sw.js",        _c_pwa_manifest),
         Rule("O2",  "PWA/Ops",          "Backup script present",       "scripts/backup_mongo.sh",      _c_backup_script),
         # ---------- Launch Readiness (2026-02 pre-launch checklist)
-        Rule("L1",  "Launch",           "MSG91 production OTP",        "OTP_DEV_MODE=false + auth key", _c_msg91_production),
+        Rule("L1",  "Launch",           "Firebase Authentication",     "Admin SDK initialised + service account present", _c_firebase_configured),
         Rule("L2",  "Launch",           "Razorpay live mode",          "MOCK=false + rzp_live_ key",   _c_razorpay_live),
         Rule("L3",  "Launch",           "Per-program payment mode",    "ProgramCreate.payment_mode",   _c_per_program_payment_mode),
         Rule("L4",  "Launch",           "Referral gated by activity",  "meter-green requirement",      _c_referral_activity_gated),

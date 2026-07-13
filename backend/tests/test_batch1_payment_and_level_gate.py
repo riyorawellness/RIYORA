@@ -2,6 +2,7 @@
 import uuid
 import os
 from pathlib import Path
+from tests.helpers.firebase_seed import seed_test_user  # noqa: E402
 
 import pytest
 import requests
@@ -31,31 +32,16 @@ def _slug(prefix="b1"):
 
 
 def _register(referral_id=COMPANY_REF, name="TEST_B1"):
-    m = _rand_mobile()
-    requests.post(f"{API}/auth/send-otp", json={"mobile": m, "purpose": "register"})
-    requests.post(
-        f"{API}/auth/verify-otp",
-        json={"mobile": m, "purpose": "register", "code": DEV_OTP},
-    )
-    r = requests.post(
-        f"{API}/auth/register",
-        json={
-            "full_name": name,
-            "mobile": m,
-            "state": "KA",
-            "city": "BLR",
-            "referral_id": referral_id,
-            "password": DEFAULT_PASSWORD,
-            "confirm_password": DEFAULT_PASSWORD,
-        },
-    )
-    assert r.status_code == 200, r.text
-    d = r.json()
+    """Seed a dummy user + return a login-shaped dict (post-Firebase migration)."""
+    r = seed_test_user(full_name=name, sponsor=referral_id)
     return {
-        "mobile": m,
-        "membership_id": d["user"]["membership_id"],
+        "mobile": r["mobile"],
+        "membership_id": r["membership_id"],
+        "password": r["password"],
+        "token": r["access_token"],
+        "refresh_token": r["refresh_token"],
         "headers": {
-            "Authorization": f"Bearer {d['tokens']['access_token']}",
+            "Authorization": f"Bearer {r['access_token']}",
             "Content-Type": "application/json",
         },
     }

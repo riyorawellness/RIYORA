@@ -20,16 +20,11 @@ class Settings:
     JWT_ACCESS_TTL_MIN: int = int(os.environ.get("JWT_ACCESS_TTL_MIN", "15"))
     JWT_REFRESH_TTL_DAYS: int = int(os.environ.get("JWT_REFRESH_TTL_DAYS", "7"))
 
-    # OTP
-    OTP_TTL_MIN: int = int(os.environ.get("OTP_TTL_MIN", "5"))
-    OTP_RESEND_LIMIT_PER_HOUR: int = int(os.environ.get("OTP_RESEND_LIMIT_PER_HOUR", "5"))
-    OTP_DEV_MODE: bool = os.environ.get("OTP_DEV_MODE", "true").lower() == "true"
-    OTP_DEV_CODE: str = os.environ.get("OTP_DEV_CODE", "123456")
-
-    # MSG91 (India SMS OTP)
-    MSG91_AUTH_KEY: str = os.environ.get("MSG91_AUTH_KEY", "")
-    MSG91_TEMPLATE_ID: str = os.environ.get("MSG91_TEMPLATE_ID", "")
-    MSG91_SENDER_ID: str = os.environ.get("MSG91_SENDER_ID", "")
+    # Firebase Authentication (see /app/backend/firebase-admin.json)
+    FIREBASE_ADMIN_CREDENTIALS_PATH: str = os.environ.get(
+        "FIREBASE_ADMIN_CREDENTIALS_PATH", ""
+    )
+    FIREBASE_PROJECT_ID: str = os.environ.get("FIREBASE_PROJECT_ID", "")
 
     # Admin seed
     ADMIN_MOBILE: str = os.environ["ADMIN_MOBILE"]

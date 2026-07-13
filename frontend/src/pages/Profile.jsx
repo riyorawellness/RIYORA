@@ -53,6 +53,13 @@ export default function Profile() {
         <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
           <Info k="Mobile" v={`+91 ${user?.mobile}`} />
           <Info k="Sponsor" v={user?.sponsor_name || "RIYORA Wellness"} />
+          {user?.email && <Info k="Email" v={user.email} />}
+          {user?.login_method && (
+            <Info k="Sign-in" v={
+              user.login_method === "google" ? "Google" :
+              user.login_method === "email" ? "Email + password" : "Legacy"
+            } />
+          )}
         </div>
 
         <div className="mt-4 flex gap-2">
@@ -115,7 +122,7 @@ export default function Profile() {
       </div>
 
       <p className="mt-4 text-center text-[10px] text-muted-foreground">
-        <ShieldCheck className="mr-1 inline h-3 w-3" /> Secured with mobile OTP · JWT
+        <ShieldCheck className="mr-1 inline h-3 w-3" /> Secured with Firebase Authentication · JWT
       </p>
     </div>
   );

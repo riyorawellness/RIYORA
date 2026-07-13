@@ -410,4 +410,77 @@ Full-stack RIYORA WELLNESS platform (Heal. Learn. Earn.) — Phase 1 scope: prod
   - Frontend: dummy user in Users list shows green "Tester" badge. Create-dialog renders correctly. Dummy user login → program page shows "Active" (already-paid) or "Mark as Paid (Tester)" button (not yet paid).
 
 
+## Delivered on 2026-02 (🔥 FIREBASE AUTHENTICATION — full MSG91 removal)
+
+### What
+Replaced the entire mobile-OTP (MSG91) authentication stack with **Firebase Authentication** (Google Sign-In + Email/Password). Preserved all existing users, memberships, referrals, purchases, wallet, and progress.
+
+### Backend
+- New service `app/services/firebase_auth.py` — Firebase Admin SDK init + `verify_id_token()` + `summarise()` helpers.
+- New route module `app/routes/firebase_auth_routes.py` with three endpoints:
+  - `POST /auth/firebase/sync` — verify Firebase ID token; if RIYORA account exists → mint JWT and log user in. Else return `needs_registration=true` + firebase_user summary.
+  - `POST /auth/firebase/register` — verify ID token + create RIYORA account with mobile + referral + optional profile fields. Enforces: mobile format (Indian 10-digit), mobile uniqueness, referral existence + active status, no duplicate firebase_uid/email.
+  - `POST /auth/firebase/link-existing` — grafts a fresh Firebase account onto an existing legacy RIYORA user. Requires proof of both sides (Firebase ID token + old mobile + old password). Blocks double-linking (409) and wrong passwords (401).
+- User schema additions (backwards-compatible, all optional): `firebase_uid`, `email`, `email_verified`, `login_method`, `photo_url`, `last_login_at`.
+- Legacy `/auth/login` kept alive but marked **deprecated** and returns 410 Gone if the account already has `firebase_uid` set. New users cannot use it.
+- Admin `/auth/reset-password-self` replaces the old admin OTP reset flow (admin resets own password while signed in; no OTP).
+
+### Deleted
+- `app/services/sms_msg91.py` (MSG91 SMS Flow API integration)
+- `app/utils/otp.py` (OTP generation / verification / storage)
+- `app/routes/qa.py::live_check_msg91_dry_run` endpoint
+- OTP endpoints from `app/routes/auth.py`: `send-otp`, `verify-otp`, `register`, `reset-password`
+- OTP endpoints from `app/routes/admin.py`: `send-otp`, `verify-otp`, `reset-password` (replaced with `reset-password-self`)
+- Pydantic schemas: `SendOtpRequest`, `VerifyOtpRequest`, `RegisterRequest`, `ResetPasswordRequest`, `OtpSentResponse`
+- Env vars: `OTP_DEV_MODE`, `OTP_DEV_CODE`, `OTP_TTL_MIN`, `OTP_RESEND_LIMIT_PER_HOUR`, `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`, `MSG91_SENDER_ID`
+- Config keys removed from `app/core/config.py`
+
+### Env vars added
+- **Backend** (`/app/backend/.env`):
+  - `FIREBASE_ADMIN_CREDENTIALS_PATH=/app/backend/firebase-admin.json` (mounted service-account JSON, NOT git-tracked)
+  - `FIREBASE_PROJECT_ID=riyora-8059e`
+- **Frontend** (`/app/frontend/.env`) — Web SDK config:
+  - `REACT_APP_FIREBASE_API_KEY`, `REACT_APP_FIREBASE_AUTH_DOMAIN`, `REACT_APP_FIREBASE_PROJECT_ID`, `REACT_APP_FIREBASE_STORAGE_BUCKET`, `REACT_APP_FIREBASE_MESSAGING_SENDER_ID`, `REACT_APP_FIREBASE_APP_ID`
+
+### Frontend
+- `lib/firebase.js` — Firebase Web SDK init + wrappers (`signInWithGoogle`, `signUpWithEmail`, `signInWithEmail`, `sendResetEmail`, `signOut`, `humanFirebaseError`).
+- `pages/Login.jsx` — rewritten with two paths: **Continue with Google** and **Sign in with email**. Legacy mobile+password login removed from primary UI (still callable during account-link flow).
+- `pages/Register.jsx` — Step 1 UI: **Continue with Google** or **Sign up with email** (Firebase creates the account, then we jump to profile-completion).
+- `pages/CompleteProfile.jsx` (new) — Step 2 UI: collects mandatory mobile + referral + full name + optional profile fields; calls `/auth/firebase/register` with the Firebase ID token cached in sessionStorage.
+- `pages/LinkAccount.jsx` (new) — 2-step migration UI for legacy users: sign up on Firebase → prove old (mobile+password) → account linked.
+- `pages/ForgotPassword.jsx` — rewritten to use `sendPasswordResetEmail` from Firebase; no OTP.
+- `AuthContext.jsx` — added `syncFirebaseToken`, `registerWithFirebase`, `linkExistingWithFirebase`; auto-signs out of Firebase on logout.
+- `Profile.jsx` — surfaces email + sign-in method chip; footer now says "Secured with Firebase Authentication · JWT".
+- `AdminUsers.jsx` — shows Firebase UID (masked), email, login-method badge (Google/Email/Legacy), last_login timestamp. New filter dropdown for login method (`all / google / email / legacy`). Search widened to match email + firebase_uid.
+- `AdminLiveCheck.jsx` — MSG91 card replaced with **Firebase Authentication** card showing project id + Admin-SDK-initialised badge.
+- Deleted `components/PreviewBanner.jsx` + `services/adminPreview.js` earlier in the same session.
+
+### BRV rules updated
+- **L1** was "MSG91 production OTP" → now **"Firebase Authentication"** (checks Admin-SDK-initialised + project-id set). Passes ✅
+- **R5** was "OTP TTL ≤ 5 min" → now **"Firebase project configured"**. Passes ✅
+- Overall BRV: **45/45 rules PASS** (up from 43/45 pre-migration).
+
+### Tests
+- New `tests/test_firebase_auth.py` — 10 tests (all pass) covering: token verification, first-time-sync, full registration, duplicate mobile, invalid referral, link-existing happy path, wrong password, double-link protection, legacy-login blocked after link, all OTP endpoints return 404.
+- New helper `tests/helpers/firebase_seed.py` — replaces old `send-otp → verify-otp → register` pattern with `POST /admin/users/dummy` + legacy `/auth/login` (accounts without `firebase_uid` still accept it — the same path production admins use to test).
+- 7 legacy test files auto-patched to use the new seed helper.
+
+### Migration path for existing users
+1. Existing users land on `/login`.
+2. They click **Continue with Google** or **Sign in with email**.
+3. Backend `/sync` returns `needs_registration=true` because their `firebase_uid` isn't set yet.
+4. Frontend detects legacy user hint text and routes them to `/link-account`.
+5. They provide their old mobile + password once → server verifies via legacy `/auth/login` guarantees → grafts firebase_uid onto their existing membership.
+6. All future logins go through Firebase. Their programs, wallet, referral tree, purchases, certificates — everything intact.
+
+### End-to-end verified live (2026-02)
+- 3 real Firebase users created via Admin SDK → `/sync` → `/register` → mints RIYORA JWT ✅
+- Real Firebase Google Sign-In screen (visible in Preview at `/login`) ✅
+- Backend Firebase Admin SDK: project `riyora-8059e` initialised ✅
+- Frontend Firebase Web SDK loads at page load, no console errors ✅
+- Live Check panel shows both Razorpay LIVE + Firebase LIVE ✅
+- Password reset via `sendPasswordResetEmail` — email delivery managed by Firebase (no OTP dependency)
+
+
+
 

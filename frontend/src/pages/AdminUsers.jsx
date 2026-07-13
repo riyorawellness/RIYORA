@@ -22,6 +22,7 @@ export default function AdminUsers() {
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
   const [activeFilter, setActiveFilter] = useState("");
+  const [loginMethodFilter, setLoginMethodFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
   const [pwDialog, setPwDialog] = useState(null);
@@ -41,6 +42,7 @@ export default function AdminUsers() {
       if (q) params.q = q;
       if (state) params.state = state;
       if (activeFilter !== "") params.is_active = activeFilter === "true";
+      if (loginMethodFilter) params.login_method = loginMethodFilter;
       const d = await adminApi.listUsers(params);
       setItems(d.items || []);
       setTotal(d.total);
@@ -205,6 +207,17 @@ export default function AdminUsers() {
           <option value="true">Active</option>
           <option value="false">Inactive</option>
         </select>
+        <select
+          className="h-10 rounded-md border bg-white px-3 text-sm"
+          value={loginMethodFilter}
+          onChange={(e) => setLoginMethodFilter(e.target.value)}
+          data-testid="admin-users-login-method"
+        >
+          <option value="">All sign-in</option>
+          <option value="google">Google</option>
+          <option value="email">Email</option>
+          <option value="legacy">Legacy (mobile+pwd)</option>
+        </select>
         <Button onClick={() => { setPage(1); load(); }} data-testid="admin-users-apply">Apply</Button>
         <Button variant="outline" onClick={exportCsv} data-testid="admin-users-export">
           <Download className="mr-1 h-4 w-4" /> Export CSV
@@ -228,9 +241,10 @@ export default function AdminUsers() {
             <TableHeader>
               <TableRow>
                 <TableHead>Member</TableHead>
+                <TableHead>Sign-in</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Sponsor</TableHead>
-                <TableHead>Joined</TableHead>
+                <TableHead>Last login</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
@@ -250,10 +264,21 @@ export default function AdminUsers() {
                     <div className="font-mono text-xs text-muted-foreground">
                       {u.membership_id} · +91 {u.mobile}
                     </div>
+                    {u.email && (
+                      <div className="text-[10px] text-muted-foreground truncate max-w-[180px]" title={u.email}>{u.email}</div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {u.login_method === "google" && <Badge variant="secondary" className="bg-blue-50 text-blue-700">Google</Badge>}
+                    {u.login_method === "email" && <Badge variant="secondary" className="bg-purple-50 text-purple-700">Email</Badge>}
+                    {u.login_method === "legacy" && <Badge variant="outline" className="border-amber-300 text-amber-700">Legacy</Badge>}
+                    {u.firebase_uid && <div className="mt-1 font-mono text-[9px] text-muted-foreground truncate max-w-[100px]" title={u.firebase_uid}>{u.firebase_uid.slice(0, 10)}…</div>}
                   </TableCell>
                   <TableCell className="text-xs">{u.city}, {u.state}</TableCell>
                   <TableCell className="font-mono text-xs">{u.sponsor_membership_id}</TableCell>
-                  <TableCell className="text-xs">{formatDate(u.created_at)}</TableCell>
+                  <TableCell className="text-xs">
+                    {u.last_login_at ? formatDate(u.last_login_at) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={u.is_active ? "default" : "secondary"}>
                       {u.status || (u.is_active ? "active" : "inactive")}

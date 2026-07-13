@@ -36,6 +36,7 @@ async def list_users(
     q: str | None = Query(default=None),
     state: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
+    login_method: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ):
@@ -44,12 +45,19 @@ async def list_users(
         filters["state"] = state
     if is_active is not None:
         filters["is_active"] = is_active
+    if login_method:
+        if login_method == "legacy":
+            filters["firebase_uid"] = {"$in": [None, ""]}
+        else:
+            filters["login_method"] = login_method
     if q:
         filters["$or"] = [
             {"full_name": {"$regex": q, "$options": "i"}},
             {"mobile": {"$regex": q}},
             {"membership_id": {"$regex": q, "$options": "i"}},
             {"sponsor_membership_id": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+            {"firebase_uid": {"$regex": q, "$options": "i"}},
         ]
     total = await database.users.count_documents(filters)
     skip = (page - 1) * page_size
@@ -69,6 +77,12 @@ async def list_users(
                 "is_active": u.get("is_active", True),
                 "is_dummy": bool(u.get("is_dummy", False)),
                 "status": u.get("status", "active" if u.get("is_active", True) else "deactivated"),
+                "firebase_uid": u.get("firebase_uid"),
+                "email": u.get("email"),
+                "email_verified": bool(u.get("email_verified", False)),
+                "login_method": u.get("login_method") or ("legacy" if not u.get("firebase_uid") else None),
+                "photo_url": u.get("photo_url"),
+                "last_login_at": u.get("last_login_at"),
                 "created_at": u["created_at"],
             }
         )

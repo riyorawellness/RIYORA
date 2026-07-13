@@ -15,7 +15,7 @@ from app.core.config import get_settings
 from app.core.deps import db, get_current_admin
 from app.services.brv import build_pdf, run_brv
 from app.services import payment as pay_svc
-from app.services import sms_msg91
+from app.services import firebase_auth as fb
 from app.utils.audit import log_action
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,14 @@ async def live_check_status(_admin: dict = Depends(get_current_admin)):
     rzp_webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
     is_live_key = rzp_key.startswith("rzp_live_")
 
-    msg91_configured = sms_msg91.is_configured()
+    # Firebase readiness
+    fb_configured = False
+    fb_project = os.environ.get("FIREBASE_PROJECT_ID", "")
+    try:
+        fb._init()
+        fb_configured = True
+    except Exception:  # noqa: BLE001
+        fb_configured = False
 
     return {
         "razorpay": {
@@ -96,13 +103,10 @@ async def live_check_status(_admin: dict = Depends(get_current_admin)):
             "webhook_url_hint": "/api/payments/webhook  ·  /api/payments/razorpay/webhook",
             "status": "live" if (is_live_key and not _settings.RAZORPAY_MOCK_MODE) else "mock",
         },
-        "msg91": {
-            "otp_dev_mode": _settings.OTP_DEV_MODE,
-            "configured": msg91_configured,
-            "auth_key_masked": _mask(_settings.MSG91_AUTH_KEY),
-            "template_id": _settings.MSG91_TEMPLATE_ID or "",
-            "sender_id": _settings.MSG91_SENDER_ID or "",
-            "status": "live" if (msg91_configured and not _settings.OTP_DEV_MODE) else "dev",
+        "firebase": {
+            "configured": fb_configured,
+            "project_id": fb_project,
+            "status": "live" if fb_configured else "not_configured",
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -187,43 +191,3 @@ async def live_check_webhook_events(
             "created_at": row.get("created_at"),
         })
     return {"events": events, "count": len(events)}
-
-
-class Msg91DryRunRequest(BaseModel):
-    mobile: str = Field(min_length=10, max_length=15)
-
-
-@router.post("/live-check/msg91/dry-run")
-async def live_check_msg91_dry_run(
-    body: Msg91DryRunRequest,
-    database: AsyncIOMotorDatabase = Depends(db),
-    admin: dict = Depends(get_current_admin),
-):
-    """Attempt to dispatch a diagnostic OTP via MSG91.
-
-    - If MSG91 is not configured → returns `{ sent: false, dev_mode: true }`
-      and logs the fake code so the admin can see what would have been sent.
-    - If MSG91 is configured → dispatches an actual SMS with the code 424242.
-      The code is never stored server-side; admins use this only to verify
-      the SMS lands on the target handset.
-    """
-    if not sms_msg91.is_configured():
-        await log_action(
-            database, actor_id=admin["mobile"], action="qa.live_check.msg91_dryrun_dev",
-            entity="qa", meta={"mobile": body.mobile[-4:]},
-        )
-        return {
-            "sent": False,
-            "dev_mode": True,
-            "message": "MSG91 is not configured. Would send code 424242 in live mode.",
-            "code_dev": "424242",
-        }
-    try:
-        ok = await sms_msg91.send_otp_sms(body.mobile, "424242")
-    except sms_msg91.Msg91Error as exc:
-        raise HTTPException(502, f"MSG91 send failed: {exc}") from exc
-    await log_action(
-        database, actor_id=admin["mobile"], action="qa.live_check.msg91_dryrun_live",
-        entity="qa", meta={"mobile": body.mobile[-4:], "sent": ok},
-    )
-    return {"sent": ok, "dev_mode": False, "message": "OTP dispatched via MSG91."}

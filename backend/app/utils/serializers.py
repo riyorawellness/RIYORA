@@ -15,6 +15,12 @@ def user_to_public(doc: dict) -> dict:
         "sponsor_name": doc.get("sponsor_name"),
         "is_active": doc.get("is_active", True),
         "is_dummy": bool(doc.get("is_dummy", False)),
+        "firebase_uid": doc.get("firebase_uid"),
+        "email": doc.get("email"),
+        "email_verified": bool(doc.get("email_verified", False)),
+        "login_method": doc.get("login_method"),
+        "photo_url": doc.get("photo_url"),
+        "last_login_at": doc.get("last_login_at"),
         "created_at": doc["created_at"],
         "updated_at": doc["updated_at"],
     }

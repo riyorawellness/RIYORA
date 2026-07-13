@@ -34,6 +34,7 @@ from app.db.mongo import (  # noqa: E402
 )
 from app.routes import admin as admin_routes  # noqa: E402
 from app.routes import auth as auth_routes  # noqa: E402
+from app.routes import firebase_auth_routes  # noqa: E402
 from app.routes import membership as membership_routes  # noqa: E402
 from app.routes import user as user_routes  # noqa: E402
 
@@ -214,6 +215,7 @@ async def health():
 
 
 api_router.include_router(auth_routes.router)
+api_router.include_router(firebase_auth_routes.router)
 api_router.include_router(user_routes.router)
 api_router.include_router(membership_routes.router)
 api_router.include_router(admin_routes.router)

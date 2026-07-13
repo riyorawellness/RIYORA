@@ -37,7 +37,7 @@ api.interceptors.response.use(
     const isAuthCall =
       url.includes("/auth/refresh") ||
       url.includes("/auth/login") ||
-      url.includes("/auth/register") ||
+      url.includes("/auth/firebase") ||
       url.includes("/admin/login");
 
     if (status === 401 && !original._retry && !isAuthCall) {
