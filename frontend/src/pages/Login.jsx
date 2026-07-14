@@ -26,7 +26,7 @@ function GoogleIcon(props) {
 
 export default function Login() {
   const nav = useNavigate();
-  const { syncFirebaseToken } = useAuth();
+  const { syncFirebaseToken, loginUser } = useAuth();
   const [mode, setMode] = useState("choose"); // choose | email
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -71,8 +71,24 @@ export default function Login() {
       const { idToken } = await signInWithEmail(email.trim(), password);
       await afterFirebase(idToken);
     } catch (err) {
-      const msg = err?.code ? humanFirebaseError(err) : formatApiError(err);
-      toast.error(msg);
+      // Firebase-side miss → fall back to legacy email+password login so
+      // admin-created **dummy / tester** users (who exist in RIYORA's DB
+      // only, not in Firebase) can still sign in. Any other Firebase
+      // error is surfaced as-is.
+      const code = err?.code || "";
+      const fallback = ["auth/user-not-found", "auth/invalid-credential", "auth/wrong-password"].includes(code);
+      if (fallback) {
+        try {
+          await loginUser({ email: email.trim(), password });
+          toast.success("Signed in.");
+          nav("/app/home", { replace: true });
+          return;
+        } catch (apiErr) {
+          toast.error(formatApiError(apiErr));
+        }
+      } else {
+        toast.error(humanFirebaseError(err));
+      }
     } finally {
       setBusy(null);
     }

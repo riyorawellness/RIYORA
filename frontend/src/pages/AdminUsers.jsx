@@ -32,7 +32,7 @@ export default function AdminUsers() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [dummyOpen, setDummyOpen] = useState(false);
-  const [dummyForm, setDummyForm] = useState({ full_name: "", mobile: "", password: "" });
+  const [dummyForm, setDummyForm] = useState({ full_name: "", email: "", password: "" });
   const [dummyBusy, setDummyBusy] = useState(false);
 
   const load = async () => {
@@ -133,16 +133,21 @@ export default function AdminUsers() {
   const preview = null;  // deprecated — use dummy user instead
 
   const createDummy = async () => {
-    if (!dummyForm.full_name || dummyForm.mobile.length < 10 || dummyForm.password.length < 6) {
-      toast.error("Enter name, valid 10-digit mobile and 6+ char password");
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dummyForm.email.trim());
+    if (!dummyForm.full_name || !emailOk || dummyForm.password.length < 6) {
+      toast.error("Enter a full name, a valid email, and a 6+ char password.");
       return;
     }
     setDummyBusy(true);
     try {
-      const r = await adminApi.createDummyUser(dummyForm);
+      const r = await adminApi.createDummyUser({
+        full_name: dummyForm.full_name.trim(),
+        email: dummyForm.email.trim().toLowerCase(),
+        password: dummyForm.password,
+      });
       toast.success(`Dummy user created: ${r.membership_id}`);
       setDummyOpen(false);
-      setDummyForm({ full_name: "", mobile: "", password: "" });
+      setDummyForm({ full_name: "", email: "", password: "" });
       setPage(1);
       load();
     } catch (e) {
@@ -374,12 +379,13 @@ export default function AdminUsers() {
               />
             </div>
             <div>
-              <Label>Mobile (10 digits)</Label>
+              <Label>Email (login identifier)</Label>
               <Input
-                value={dummyForm.mobile}
-                onChange={(e) => setDummyForm({ ...dummyForm, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })}
-                placeholder="9999XXXXXX"
-                data-testid="admin-dummy-mobile"
+                type="email"
+                value={dummyForm.email}
+                onChange={(e) => setDummyForm({ ...dummyForm, email: e.target.value })}
+                placeholder="tester@example.com"
+                data-testid="admin-dummy-email"
               />
             </div>
             <div>
@@ -393,7 +399,7 @@ export default function AdminUsers() {
               />
             </div>
             <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-emerald-900">
-              <div>Tester will log in via <strong>/login</strong> using this mobile + password.</div>
+              <div>Tester will log in via <strong>/login → Sign in with email</strong> using this email + password.</div>
               <div>Sponsor is <strong>RW000000</strong> (company root) so it never contaminates real referral trees.</div>
             </div>
           </div>

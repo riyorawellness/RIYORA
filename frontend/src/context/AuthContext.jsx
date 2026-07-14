@@ -56,10 +56,14 @@ export function AuthProvider({ children }) {
     })();
   }, []);
 
-  const loginUser = async (mobile, password) => {
-    // Legacy path — kept for backward compat during Phase 1. New logins
-    // should use signInWithFirebase() below.
-    const { data } = await api.post("/auth/login", { mobile, password });
+  const loginUser = async (payload, maybePassword) => {
+    // Backwards-compat: original signature was loginUser(mobile, password).
+    // New signature is loginUser({ email | mobile, password }). Detect both.
+    const body =
+      typeof payload === "string"
+        ? { mobile: payload, password: maybePassword }
+        : payload;
+    const { data } = await api.post("/auth/login", body);
     setTokens("user", data.tokens);
     setUser(data.user);
     return data.user;

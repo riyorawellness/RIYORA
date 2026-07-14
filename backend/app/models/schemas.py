@@ -22,10 +22,20 @@ class ReferralInfo(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    """Legacy mobile+password login — deprecated; used only by
-    /auth/firebase/link-existing under the hood via the security helpers."""
-    mobile: str = Field(..., pattern=MOBILE_REGEX)
+    """Legacy identifier + password login. Historically accepted only
+    `mobile` (Indian 10-digit). Since dummy / tester users are now created
+    with `email` as the primary identifier, this endpoint now accepts
+    EITHER `email` (recommended) OR `mobile` — whichever the caller
+    provides is used as the lookup key. Exactly one must be supplied.
+    """
+    mobile: str | None = Field(default=None, pattern=MOBILE_REGEX)
+    email: str | None = Field(default=None, max_length=254)
     password: str = Field(..., min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def _lower_email(cls, v: str | None) -> str | None:
+        return v.strip().lower() if v else v
 
 
 class TokenPair(BaseModel):

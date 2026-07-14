@@ -62,26 +62,36 @@ async def _issue_tokens(database: AsyncIOMotorDatabase, subject: str, role: str)
 
 @router.post("/login", response_model=dict, deprecated=True)
 async def legacy_login(body: LoginRequest, database: AsyncIOMotorDatabase = Depends(db)):
-    """DEPRECATED — legacy mobile+password login for pre-migration users only.
+    """Legacy email-or-mobile + password login.
 
-    New sign-ups must use Firebase (`POST /auth/firebase/sync`). This
-    endpoint stays alive during the migration window so existing users
-    can prove their identity when calling `/auth/firebase/link-existing`.
-    Do NOT wire new UI to this route.
+    Post-Feb-2026: real users authenticate via Firebase (`/auth/firebase/sync`).
+    This endpoint stays alive for:
+      • Pre-migration users linking existing accounts via `/auth/firebase/link-existing`
+      • Admin-created **dummy / tester** users whose primary identifier is `email`
+        (see /admin/users/dummy). Legacy `mobile+password` still works so old
+        automation doesn't break.
     """
-    await check_lockout(database, body.mobile, "user")
-    user = await database.users.find_one({"mobile": body.mobile, "deleted_at": None})
+    if not body.email and not body.mobile:
+        raise HTTPException(status_code=400, detail="Provide email or mobile.")
+    identifier = body.email or body.mobile
+    query = {"email": body.email, "deleted_at": None} if body.email else {"mobile": body.mobile, "deleted_at": None}
+
+    await check_lockout(database, identifier, "user")
+    user = await database.users.find_one(query)
     if not user or not user.get("password_hash") or not verify_password(body.password, user["password_hash"]):
-        await record_failed_login(database, body.mobile, "user")
-        raise HTTPException(status_code=401, detail="Invalid mobile or password")
+        await record_failed_login(database, identifier, "user")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is inactive")
-    if user.get("firebase_uid"):
-        # This account has already migrated to Firebase — force them there.
+    if user.get("firebase_uid") and not user.get("is_dummy"):
+        # Real accounts that have migrated to Firebase — force them back to
+        # the Firebase flow. Dummy testers are exempt because they never
+        # link to Firebase.
         raise HTTPException(status_code=410, detail="This account now uses Google / Email sign-in. Please sign in with Firebase.")
-    await reset_lockout(database, body.mobile, "user")
+    await reset_lockout(database, identifier, "user")
     tokens = await _issue_tokens(database, subject=user["membership_id"], role="user")
-    await log_action(database, actor_id=user["membership_id"], action="login.legacy", entity="user")
+    await log_action(database, actor_id=user["membership_id"], action="login.legacy", entity="user",
+                     meta={"via": "email" if body.email else "mobile"})
     return {"user": user_to_public(user), "tokens": tokens.model_dump()}
 
 

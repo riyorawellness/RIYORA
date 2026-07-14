@@ -16,7 +16,8 @@ from app.models.phase7 import (
     AdminUserStatusUpdate,
     AdminUserUpdate,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional
 from app.services.activity_meter import get_meter
 from app.services.commission_engine import summarise_user
 from app.utils.audit import log_action
@@ -302,8 +303,9 @@ async def reset_user_password(
 
 class CreateDummyUserRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=100)
-    mobile: str = Field(min_length=10, max_length=15)
+    email: EmailStr = Field(..., description="Primary login identifier for the tester.")
     password: str = Field(min_length=6, max_length=64)
+    mobile: Optional[str] = Field(default=None, min_length=10, max_length=15, description="Optional; auto-generated placeholder if omitted (users.mobile is uniquely indexed).")
     state: str = Field(default="TEST", max_length=60)
     city: str = Field(default="TEST", max_length=60)
     sponsor_membership_id: str = Field(default="RW000000", max_length=20)
@@ -315,15 +317,36 @@ async def create_dummy_user(
     database: AsyncIOMotorDatabase = Depends(db),
     admin: dict = Depends(get_current_admin),
 ):
-    """Create a tester (dummy) user without OTP verification.
+    """Create a tester (dummy) user without OTP / Firebase verification.
 
-    Admin-only. The new account can log in with (mobile + password) via the
-    normal /auth/login flow. Marked with `is_dummy=True` so all revenue
-    reports filter it out and its "Mark as Paid" endpoint works.
+    Admin-only. Since the app now authenticates with email+password (Firebase
+    for real users; legacy /auth/login for testers who don't have Firebase
+    accounts), the tester's PRIMARY identifier is now `email`. A synthetic
+    unique placeholder mobile is generated so the users.mobile unique
+    index is satisfied without asking the admin for one.
     """
-    # Mobile uniqueness
-    if await database.users.find_one({"mobile": body.mobile, "deleted_at": None}):
-        raise HTTPException(status_code=409, detail="Mobile already registered")
+    email = body.email.strip().lower()
+
+    # Email uniqueness — dummy users must not collide with real accounts.
+    if await database.users.find_one({"email": email, "deleted_at": None}):
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    # Mobile: use whatever admin provided, else auto-generate a unique 10-digit
+    # starting with 9 (satisfies the Indian mobile regex used elsewhere).
+    mobile = (body.mobile or "").strip()
+    if mobile:
+        if await database.users.find_one({"mobile": mobile, "deleted_at": None}):
+            raise HTTPException(status_code=409, detail="Mobile already registered")
+    else:
+        # ms-since-epoch modulo 1e9 → 9-digit tail → prefix with '9' to keep
+        # a valid pattern. Loop the tiny chance of a collision.
+        import time
+        for _ in range(5):
+            mobile = "9" + f"{int(time.time()*1000) % 10**9:09d}"
+            if not await database.users.find_one({"mobile": mobile, "deleted_at": None}):
+                break
+        else:
+            raise HTTPException(500, "Could not generate a unique placeholder mobile — please retry.")
 
     # Sponsor must exist
     sponsor = await database.memberships.find_one(
@@ -337,7 +360,10 @@ async def create_dummy_user(
 
     user_doc = {
         "full_name": body.full_name,
-        "mobile": body.mobile,
+        "mobile": mobile,
+        "email": email,
+        "email_verified": True,  # admin-vouched — no verification email flow for testers
+        "login_method": "email",
         "state": body.state,
         "city": body.city,
         "password_hash": hash_password(body.password),
@@ -349,6 +375,7 @@ async def create_dummy_user(
         "is_dummy": True,
         "created_at": now,
         "updated_at": now,
+        "joining_date": now,
         "deleted_at": None,
     }
     result = await database.users.insert_one(user_doc)
@@ -388,7 +415,7 @@ async def create_dummy_user(
     await database.profiles.insert_one(
         {
             "user_membership_id": membership_id,
-            "email": None,
+            "email": email,
             "dob": None,
             "gender": None,
             "address": None,
@@ -407,13 +434,14 @@ async def create_dummy_user(
         action="users.dummy.create",
         entity="user",
         entity_id=membership_id,
-        meta={"mobile": body.mobile, "full_name": body.full_name},
+        meta={"email": email, "mobile": mobile, "full_name": body.full_name},
     )
 
     return {
         "success": True,
         "membership_id": membership_id,
-        "mobile": body.mobile,
+        "email": email,
+        "mobile": mobile,
         "full_name": body.full_name,
         "is_dummy": True,
     }
