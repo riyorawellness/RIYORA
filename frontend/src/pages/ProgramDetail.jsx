@@ -27,6 +27,15 @@ const ICONS = {
   audio: Headphones,
   pdf: FileText,
   assessment: GraduationCap,
+  content: FileText,
+};
+
+const TYPE_LABELS = {
+  video: "Video",
+  audio: "Audio",
+  pdf: "PDF",
+  assessment: "Assessment",
+  content: "Content",
 };
 
 export default function ProgramDetail() {
@@ -249,7 +258,7 @@ export default function ProgramDetail() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        Module {m.module_number} · {type}
+                        Module {m.module_number} · {TYPE_LABELS[type] || "Content"}
                       </div>
                       <div className="truncate font-semibold">{m.name}</div>
                     </div>
@@ -397,9 +406,12 @@ function formatDate(iso) {
 }
 
 function pickType(m) {
+  // Pick the module's media type strictly from what the admin actually uploaded.
+  // Order matters: video → audio → pdf → assessment → generic content.
+  // (Previously fell back to "video" which mislabelled audio/pdf-only modules.)
   if (m.video_url) return "video";
   if (m.audio_url) return "audio";
   if (m.pdf_url) return "pdf";
   if (m.quiz_id) return "assessment";
-  return "video";
+  return "content";
 }
