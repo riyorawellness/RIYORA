@@ -47,7 +47,7 @@ export default function CompleteProfile() {
   const submit = async (e) => {
     e.preventDefault();
     if (!/^[6-9]\d{9}$/.test(form.mobile)) return toast.error("Enter a valid 10-digit Indian mobile");
-    if (!form.referral_id.trim()) return toast.error("Referral code is required");
+    if (!/^RW\d{6}$/.test(form.referral_id)) return toast.error("Referral ID must be RW followed by 6 digits (e.g. RW000000).");
     if (!form.full_name || form.full_name.length < 2) return toast.error("Enter your full name");
 
     setBusy(true);
@@ -105,16 +105,24 @@ export default function CompleteProfile() {
                 One mobile per RIYORA account. No verification code required.
               </p>
             </Field>
-            <Field label="Referral code">
+            <Field label="Referral code (RW + 6 digits — 8 chars total)">
               <input
-                className="rw-input uppercase"
+                className="rw-input uppercase font-mono"
                 value={form.referral_id}
-                onChange={(e) => setForm({ ...form, referral_id: e.target.value.toUpperCase() })}
+                onChange={(e) => {
+                  // Force uppercase, strip non-alphanumeric, cap at 8 chars.
+                  const cleaned = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+                  setForm({ ...form, referral_id: cleaned });
+                }}
+                maxLength={8}
                 placeholder="RW000000"
+                pattern="RW\d{6}"
+                inputMode="text"
                 data-testid="cp-referral"
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Ask your sponsor for their Referral ID. Use <span className="font-mono">RW000000</span> if you don't have one.
+                Exactly <span className="font-mono">RW</span> followed by 6 digits. Use{" "}
+                <span className="font-mono">RW000000</span> if you don&apos;t have a sponsor.
               </p>
             </Field>
           </Section>

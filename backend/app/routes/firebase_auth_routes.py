@@ -113,7 +113,7 @@ class FirebaseTokenBody(BaseModel):
 class FirebaseRegisterBody(BaseModel):
     id_token: str = Field(min_length=10)
     mobile: str = Field(min_length=10, max_length=10)
-    referral_id: str = Field(min_length=1, max_length=20)
+    referral_id: str = Field(min_length=8, max_length=8, pattern=r"^RW\d{6}$", description="Sponsor Membership ID — 8 chars: 'RW' + 6 digits.")
     full_name: str | None = Field(default=None, min_length=2, max_length=100)
     state: str = Field(default="", max_length=60)
     city: str = Field(default="", max_length=60)
