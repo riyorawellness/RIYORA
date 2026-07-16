@@ -490,6 +490,27 @@ async def razorpay_webhook(request: Request):
                 "created_at": _now_iso(),
             }
         )
+
+        # ---- Subscription auto-charge fan-out.
+        # These handlers are idempotent and safe to re-run on webhook retries.
+        try:
+            from app.routes.enrolments import (
+                handle_subscription_charged,
+                handle_subscription_lifecycle,
+            )
+            if event == "subscription.charged":
+                await handle_subscription_charged(database, payload)
+            elif event in {
+                "subscription.pending",
+                "subscription.halted",
+                "subscription.cancelled",
+                "subscription.completed",
+            }:
+                await handle_subscription_lifecycle(database, payload, event)
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception("subscription webhook handler failed")
+
     return WebhookAck()
 
 
@@ -668,22 +689,10 @@ async def my_subscriptions(
     return {"items": items}
 
 
-@router.post("/subscription/{sub_id}/cancel")
-async def cancel_subscription(
-    sub_id: str,
-    database: AsyncIOMotorDatabase = Depends(db),
-    current: dict = Depends(get_current_user),
-):
-    sub = await database.subscriptions.find_one(
-        {"id": sub_id, "user_membership_id": current["membership_id"], "deleted_at": None}
-    )
-    if not sub:
-        raise HTTPException(404, "Subscription not found")
-    await database.subscriptions.update_one(
-        {"_id": sub["_id"]},
-        {"$set": {"status": "cancelled", "updated_at": _now_iso()}},
-    )
-    return {"success": True}
+# Legacy `cancel_subscription` endpoint removed — superseded by
+# app.routes.enrolments.subscription_cancel which uses the correct
+# `subscription_id` lookup (this file's version queried by legacy `id`
+# field and shadowed the new route, causing 404s).
 
 
 # ---------------- admin ---------------------------------------------------

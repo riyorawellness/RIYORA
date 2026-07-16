@@ -72,6 +72,7 @@ from app.routes import qa as qa_routes  # noqa: E402
 from app.routes import manual_payments as manual_payments_routes  # noqa: E402
 from app.routes import admin_danger as admin_danger_routes  # noqa: E402
 from app.routes import profile_editing as profile_editing_routes  # noqa: E402
+from app.routes import enrolments as enrolments_routes  # noqa: E402
 from app.core.security_mw import SecurityHeadersMiddleware, limiter  # noqa: E402
 from app.core.logging_mw import RequestIdMiddleware  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
@@ -259,5 +260,6 @@ api_router.include_router(manual_payments_routes.serve_router)
 api_router.include_router(admin_danger_routes.router)
 api_router.include_router(profile_editing_routes.router)
 api_router.include_router(profile_editing_routes.admin_router)
+api_router.include_router(enrolments_routes.router)
 
 app.include_router(api_router)

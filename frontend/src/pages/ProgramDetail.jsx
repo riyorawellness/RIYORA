@@ -16,7 +16,7 @@ import {
 
 import CheckoutModal from "@/components/CheckoutModal";
 import { programsApi } from "@/services/programs";
-import { paymentsApi } from "@/services/payments";
+import { paymentsApi, loadRazorpayScript } from "@/services/payments";
 import { manualPaymentsApi } from "@/services/manualPayments";
 import { useAuth } from "@/context/AuthContext";
 import { TID } from "@/constants/testIds";
@@ -85,11 +85,47 @@ export default function ProgramDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const handleSubscribe = async (plan) => {
+  const handleFreeEnrol = async () => {
     try {
-      await paymentsApi.createSubscription(id, plan);
-      toast.success("Subscription activated");
+      await paymentsApi.enrolFree(id);
+      toast.success("You're enrolled — enjoy!");
       load();
+    } catch (e) {
+      toast.error(formatApiError(e, "Could not enrol"));
+    }
+  };
+
+  const handleSubscribeAutoPay = async () => {
+    try {
+      const RZP = await loadRazorpayScript();
+      if (!RZP) return toast.error("Could not load Razorpay checkout.");
+      const init = await paymentsApi.subscriptionInit(id);
+      // Mock mode? Verify + succeed immediately.
+      if (init.is_mock) {
+        await paymentsApi.subscriptionVerify(init.subscription_id);
+        toast.success("Mock subscription activated.");
+        load();
+        return;
+      }
+      const rzp = new RZP({
+        key: init.razorpay_key_id,
+        subscription_id: init.subscription_id,
+        name: "RIYORA Wellness",
+        description: `${program.name} · Subscription`,
+        handler: async () => {
+          try {
+            await paymentsApi.subscriptionVerify(init.subscription_id);
+            toast.success("Subscription authorised — auto-pay is on.");
+            load();
+          } catch (e) {
+            toast.error(formatApiError(e, "Could not verify subscription"));
+          }
+        },
+        modal: {
+          ondismiss: () => toast.info("Subscription setup cancelled"),
+        },
+      });
+      rzp.open();
     } catch (e) {
       toast.error(formatApiError(e, "Could not start subscription"));
     }
@@ -110,9 +146,14 @@ export default function ProgramDetail() {
     );
   }
   const program = status.program;
+  const paymentType = program.payment_type ||
+    (program.is_subscription ? "subscription" : Number(program.price) === 0 ? "free" : "one_time");
+  const isFree = paymentType === "free";
+  const isSubscription = paymentType === "subscription";
   const hasAccess = !!status.has_access;
   const priceAfter = (program.price || 0) - (program.discount || 0);
-  const gstAmount = Math.round((priceAfter * (program.gst_percent || 18)) / 100);
+  const gstPercent = Number(program.gst_percent ?? 18);
+  const gstAmount = Math.round((priceAfter * gstPercent) / 100);
   const total = priceAfter + gstAmount;
   const percentage = Math.round(status.progress?.percentage || 0);
   const banner =
@@ -155,7 +196,7 @@ export default function ProgramDetail() {
         {/* meta strip */}
         <div className="grid grid-cols-3 gap-2 text-center">
           <Meta k="Validity" v={`${program.validity_days || 0}d`} />
-          <Meta k="GST" v={`${program.gst_percent || 18}%`} />
+          <Meta k="GST" v={`${gstPercent}%`} />
           <Meta
             k="Status"
             v={hasAccess ? "Active" : status.certificate ? "Completed" : "Locked"}
@@ -276,20 +317,26 @@ export default function ProgramDetail() {
         <div className="flex items-end justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
-              Total
+              {isFree ? "Cost" : isSubscription ? `Auto-Pay · ${program.subscription_frequency?.replace("_", "-")}` : "Total"}
             </div>
             <div className="rw-serif text-2xl text-[hsl(var(--rw-royal-deep))]">
-              ₹{total.toLocaleString("en-IN")}
-              {program.discount > 0 && (
-                <span className="ml-2 text-xs font-medium text-muted-foreground line-through">
-                  ₹{program.price.toLocaleString("en-IN")}
-                </span>
+              {isFree ? "FREE" : (
+                <>
+                  ₹{total.toLocaleString("en-IN")}
+                  {program.discount > 0 && (
+                    <span className="ml-2 text-xs font-medium text-muted-foreground line-through">
+                      ₹{program.price.toLocaleString("en-IN")}
+                    </span>
+                  )}
+                </>
               )}
             </div>
-            <div className="text-[10px] text-muted-foreground">
-              ₹{priceAfter.toLocaleString("en-IN")} + ₹
-              {gstAmount.toLocaleString("en-IN")} GST
-            </div>
+            {!isFree && (
+              <div className="text-[10px] text-muted-foreground">
+                ₹{priceAfter.toLocaleString("en-IN")} + ₹{gstAmount.toLocaleString("en-IN")} GST
+                {isSubscription && " · charged every cycle"}
+              </div>
+            )}
           </div>
           {status.certificate ? (
             <span className="rw-chip rw-chip-gold">
@@ -299,6 +346,22 @@ export default function ProgramDetail() {
             <span className="rw-chip rw-chip-sky">
               <CheckCircle2 className="h-3 w-3" /> Active
             </span>
+          ) : isFree ? (
+            <button
+              className="rw-btn-pill rw-btn-primary"
+              onClick={handleFreeEnrol}
+              data-testid="program-free-enrol-btn"
+            >
+              Join for free
+            </button>
+          ) : isSubscription ? (
+            <button
+              className="rw-btn-pill rw-btn-primary"
+              onClick={handleSubscribeAutoPay}
+              data-testid="program-subscribe-btn"
+            >
+              Subscribe · Auto-Pay
+            </button>
           ) : pendingReq ? (
             <button
               className="rw-btn-pill bg-amber-500 text-white opacity-90 cursor-not-allowed"

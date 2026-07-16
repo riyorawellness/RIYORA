@@ -550,6 +550,45 @@ All 4 shell scripts pass `bash -n` syntax check. `docker-compose.yml` passes YAM
 - **Deployment**: `deploy/frontend/Dockerfile`, `deploy/scripts/{deploy,verify,certbot-init}.sh`.
 
 
+## Delivered on 2026-07-16 (Payment Type + Subscriptions + Referral audit batch)
+
+### 1. Program Payment Type — Free / One-Time / Subscription
+- Program model now has `payment_type: Literal["free","one_time","subscription"]` + `subscription_frequency: Literal["monthly","half_yearly","yearly"]`.
+- Admin Program Builder shows a 3-button card. Selecting Free auto-locks price to 0. Selecting Subscription reveals the frequency dropdown and enforces it (400 otherwise).
+- Backward compat: legacy `is_subscription` boolean is mirrored automatically.
+- Free program flow: `POST /api/programs/{id}/enrol-free` inserts a row in the new `program_enrolments` collection (unique on `(user, program)`). `GET /api/programs/me/enrolments` lists them. Program `status` endpoint now surfaces enrolment + subscription in addition to purchase.
+- Subscription flow (real Razorpay AutoPay):
+  - `POST /api/payments/subscription/init` — creates a Razorpay **Plan** (cached per-program via `programs._razorpay_plans[freq:amount]`) + a **Subscription**, returns `{subscription_id, plan_id, short_url, is_mock}`.
+  - `POST /api/payments/subscription/{sid}/verify` — post-mandate call; fetches Razorpay status and updates the doc.
+  - `POST /api/payments/subscription/{sid}/cancel` — user-initiated; uses `cancel_at_cycle_end=True` when a mandate is active, `False` if still in `created/pending` (Razorpay refuses cycle-end cancel on unauth mandates).
+  - Frontend `ProgramDetail.jsx` opens Razorpay Checkout with `subscription_id` (not `order_id`); on mock mode verifies immediately.
+  - Webhook branch on `subscription.charged` inserts a purchase row + triggers commissions on every renewal (per requirement 3a). Idempotent on `razorpay_payment_id`.
+  - Webhook branches on `subscription.pending / halted / cancelled / completed` update the record status.
+
+### 2. Referral Engine audit
+- New `services/referral_audit.py` runs 6 checks: `company_root`, `sponsor_mapping`, `tree_depth`, `commission_idempotency`, `commission_calculation`, `wallet_totals`.
+- `GET /api/admin/qa/referral-audit` — JSON verdict.
+- `GET /api/admin/qa/referral-audit.pdf` — printable PDF via ReportLab.
+- Live audit result: **6 / 6 PASS · overall PASS**. Saved as `/app/memory/REFERRAL_AUDIT.md`.
+
+### 3. Wallet UX polish
+- `/app/profile` menu row previously "Commissions" renamed to **"Wallet · Referral income"** — same data-testid `profile-nav-commissions`.
+- Existing `/admin/payouts` (approve → mark paid with method + reference) remains the sole redemption workflow (user choice 4a).
+
+### 4. Bugs fixed in this batch (found by testing agent)
+- `subscriptions` collection: unique index was on `subscription_id` but inserts wrote field `id`. Every second insert collided at Mongo layer (E11000). **Fixed** by:
+  - Renaming the field in every insert/read/query to `subscription_id`.
+  - Adding `sparse=True` to the index.
+  - Adding startup self-heal that migrates any legacy `id`-keyed rows and drops stale null-collided ones.
+- Legacy `/subscription/{sub_id}/cancel` in `payments.py` shadowed the new endpoint in `enrolments.py` — legacy version removed.
+- `ProgramDetail.jsx` — GST fallback used `||` which treated 0% as falsy and displayed 18%. Fixed with `??`.
+
+### Files changed / added (this batch)
+- **Backend**: `routes/enrolments.py` (new, ~330 lines), `services/referral_audit.py` (new, ~230 lines), `routes/payments.py` (webhook fan-out + legacy cancel removed), `routes/programs.py` (payment_type mirroring, status surfaces enrolment/subscription), `routes/qa.py` (audit endpoints), `services/payment.py` (real Razorpay Subscriptions client), `models/phase2.py` (Program payment_type + frequency), `db/mongo.py` (sparse index + self-heal), `server.py` (router).
+- **Frontend**: `pages/AdminPrograms.jsx` (payment_type card + frequency dropdown), `pages/ProgramDetail.jsx` (branched sticky bar with Free / Subscribe / One-Time; GST fix), `services/payments.js` (subscriptionInit / subscriptionVerify / enrolFree), `pages/Profile.jsx` (Wallet label).
+- **Docs**: `/app/memory/REFERRAL_AUDIT.md`, `/app/backend/tests/test_iter26_payment_type_and_subscriptions.py`.
+
+
 
 
 

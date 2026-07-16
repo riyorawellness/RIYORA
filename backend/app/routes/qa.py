@@ -191,3 +191,34 @@ async def live_check_webhook_events(
             "created_at": row.get("created_at"),
         })
     return {"events": events, "count": len(events)}
+
+
+# ------------------------- Referral Engine Audit ------------------------------
+
+@router.get("/referral-audit")
+async def referral_audit_json(
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Full referral engine audit — returns structured JSON with pass/fail
+    per check + headline stats. Safe to call anytime; read-only."""
+    from app.services.referral_audit import run_referral_audit
+    return await run_referral_audit(database)
+
+
+@router.get("/referral-audit.pdf")
+async def referral_audit_pdf(
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Same audit as JSON, delivered as a printable PDF."""
+    from fastapi.responses import Response
+    from app.services.referral_audit import build_pdf, run_referral_audit
+    report = await run_referral_audit(database)
+    pdf_bytes = build_pdf(report)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="referral-audit.pdf"'},
+    )
+

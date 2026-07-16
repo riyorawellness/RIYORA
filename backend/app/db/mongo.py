@@ -66,6 +66,15 @@ async def create_indexes() -> None:
     await db.program_purchases.create_index("expiry_date")
     await db.program_purchases.create_index("purchase_date")
     await db.program_purchases.create_index("program_id")
+    # 2026-02: enrolments + subscriptions indexes.
+    await db.program_enrolments.create_index(
+        [("user_membership_id", 1), ("program_id", 1)], unique=True
+    )
+    await db.program_enrolments.create_index("program_id")
+    await db.subscriptions.create_index(
+        [("user_membership_id", 1), ("program_id", 1), ("status", 1)]
+    )
+    await db.program_purchases.create_index("razorpay_payment_id", sparse=True)
     await db.program_progress.create_index(
         [("user_membership_id", 1), ("program_id", 1)], unique=True
     )
@@ -90,7 +99,37 @@ async def create_indexes() -> None:
     await db.payment_orders.create_index("order_id", unique=True)
     await db.payment_orders.create_index([("user_membership_id", 1), ("created_at", -1)])
     await db.payment_orders.create_index("status")
-    await db.subscriptions.create_index("subscription_id", unique=True)
+    # Legacy self-heal: any subscription documents inserted before 2026-07
+    # under the field name `id` (instead of `subscription_id`) are migrated
+    # once at startup so the unique index below is valid.
+    try:
+        cursor = db.subscriptions.find(
+            {"subscription_id": {"$in": [None, ""]}, "id": {"$exists": True}}
+        )
+        async for row in cursor:
+            if row.get("id"):
+                await db.subscriptions.update_one(
+                    {"_id": row["_id"]},
+                    {"$set": {"subscription_id": row["id"]}, "$unset": {"id": ""}},
+                )
+        # Anything still with a null subscription_id would break the unique
+        # index — drop those (they're never functional Razorpay records).
+        await db.subscriptions.delete_many({"subscription_id": {"$in": [None, ""]}})
+    except Exception:  # noqa: BLE001
+        # Non-fatal: the collection may not exist yet on a fresh DB.
+        pass
+    # Ensure the current sparse+unique version of the index exists. If a
+    # previous non-sparse version is present, drop it first (idempotent).
+    try:
+        existing = await db.subscriptions.index_information()
+        for name, spec in existing.items():
+            if [("subscription_id", 1)] == list(spec.get("key", [])) and (
+                not spec.get("sparse") or not spec.get("unique")
+            ):
+                await db.subscriptions.drop_index(name)
+    except Exception:  # noqa: BLE001
+        pass
+    await db.subscriptions.create_index("subscription_id", unique=True, sparse=True)
     await db.subscriptions.create_index([("user_membership_id", 1), ("status", 1)])
     # razorpay_payment_id may be null; sparse index to keep uniqueness only when set
     await db.program_purchases.create_index("razorpay_payment_id", sparse=True)

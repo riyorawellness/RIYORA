@@ -98,9 +98,16 @@ class ProgramCreate(BaseModel):
     category_id: Optional[str] = None
     order_index: int = 0
     is_active: bool = True
+    # Legacy is_subscription flag kept for backward-compat; superseded by payment_type.
     is_subscription: bool = False
     is_featured: bool = False
     payment_mode: Optional[Literal["manual_qr", "razorpay", "both"]] = None
+    # NEW (2026-02): unified payment type + subscription frequency.
+    # payment_type=free    → no payment, user joins immediately
+    # payment_type=one_time → existing Razorpay flow
+    # payment_type=subscription → Razorpay AutoPay recurring
+    payment_type: Literal["free", "one_time", "subscription"] = "one_time"
+    subscription_frequency: Optional[Literal["monthly", "half_yearly", "yearly"]] = None
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Literal["sequential", "free"] = "sequential"
 
@@ -121,6 +128,8 @@ class ProgramUpdate(BaseModel):
     is_subscription: Optional[bool] = None
     is_featured: Optional[bool] = None
     payment_mode: Optional[Literal["manual_qr", "razorpay", "both"]] = None
+    payment_type: Optional[Literal["free", "one_time", "subscription"]] = None
+    subscription_frequency: Optional[Literal["monthly", "half_yearly", "yearly"]] = None
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Optional[Literal["sequential", "free"]] = None
 

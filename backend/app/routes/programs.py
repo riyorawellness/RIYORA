@@ -135,6 +135,27 @@ async def program_status(
         raise HTTPException(404, "Program not found")
     program.pop("_id", None)
     active = await get_active_purchase(database, current["membership_id"], program_id)
+    # Free-program enrolment counts as access even without a purchase row.
+    enrolment = None
+    if program.get("payment_type") == "free":
+        enrolment = await database.program_enrolments.find_one(
+            {"user_membership_id": current["membership_id"], "program_id": program_id, "deleted_at": None}
+        )
+        if enrolment:
+            enrolment.pop("_id", None)
+    # Active subscription mandate → user has access even if the first
+    # subscription.charged webhook hasn't fired yet.
+    active_subscription = None
+    if program.get("payment_type") == "subscription":
+        active_subscription = await database.subscriptions.find_one({
+            "user_membership_id": current["membership_id"],
+            "program_id": program_id,
+            "status": {"$in": ["authenticated", "active"]},
+            "deleted_at": None,
+        })
+        if active_subscription:
+            active_subscription.pop("_id", None)
+    has_access = bool(active) or bool(enrolment) or bool(active_subscription)
     prog = await database.program_progress.find_one(
         {"user_membership_id": current["membership_id"], "program_id": program_id, "deleted_at": None}
     )
@@ -156,7 +177,9 @@ async def program_status(
     return {
         "program": program,
         "active_purchase": active,
-        "has_access": bool(active),
+        "enrolment": enrolment,
+        "active_subscription": active_subscription,
+        "has_access": has_access,
         "progress": prog,
         "certificate": cert,
         "eligibility": {
@@ -229,7 +252,19 @@ async def admin_create_program(
                 "Pick a different slug (e.g. add a suffix).",
             )
         raise HTTPException(409, f"A program with slug '{body.slug}' already exists.")
-    created = await _repo(database).create(body.model_dump(), actor=admin["mobile"])
+    payload = body.model_dump()
+    # ---- Keep the two representations consistent.
+    # payment_type is the new source-of-truth; is_subscription stays in
+    # sync with it so legacy queries keep working. Free programs are
+    # forced to price=0 regardless of what the admin typed.
+    pt = payload.get("payment_type", "one_time")
+    payload["is_subscription"] = (pt == "subscription")
+    if pt == "free":
+        payload["price"] = 0
+        payload["discount"] = 0
+    if pt == "subscription" and not payload.get("subscription_frequency"):
+        raise HTTPException(400, "Subscription programs require a subscription_frequency.")
+    created = await _repo(database).create(payload, actor=admin["mobile"])
     # Broadcast to all users only if the program launches active + not admin-hidden.
     if created and created.get("is_active"):
         try:
@@ -256,6 +291,18 @@ async def admin_update_program(
         cat = await database.program_categories.find_one({"id": updates["category_id"], "deleted_at": None})
         if not cat:
             raise HTTPException(400, "category_id does not exist")
+    # Mirror payment_type ↔ is_subscription so legacy filters keep working.
+    if "payment_type" in updates:
+        pt = updates["payment_type"]
+        updates["is_subscription"] = (pt == "subscription")
+        if pt == "free":
+            updates["price"] = 0
+            updates["discount"] = 0
+        if pt == "subscription" and not updates.get("subscription_frequency"):
+            # Fall back to existing program's stored frequency; else reject.
+            existing = await database.programs.find_one({"id": program_id})
+            if not (existing and existing.get("subscription_frequency")):
+                raise HTTPException(400, "Subscription programs require a subscription_frequency.")
     updated = await _repo(database).update(program_id, updates, actor=admin["mobile"])
     if not updated:
         raise HTTPException(404, "Program not found")

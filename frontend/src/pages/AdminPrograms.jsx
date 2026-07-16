@@ -58,6 +58,8 @@ const emptyForm = () => ({
   is_subscription: false,
   is_featured: false,
   payment_mode: "",
+  payment_type: "one_time",
+  subscription_frequency: "monthly",
   level: 0,
   access_mode: "sequential",
 });
@@ -117,9 +119,15 @@ export default function AdminPrograms() {
   };
 
   const openEdit = (p) => {
+    // Infer payment_type for older programs saved before the field existed.
+    const paymentType =
+      p.payment_type ||
+      (p.is_subscription ? "subscription" : Number(p.price) === 0 ? "free" : "one_time");
     setForm({
       ...emptyForm(),
       ...p,
+      payment_type: paymentType,
+      subscription_frequency: p.subscription_frequency || "monthly",
       category_id: p.category_id || "",
       level: p.level ?? 0,
     });
@@ -133,7 +141,13 @@ export default function AdminPrograms() {
     if (!form.name || form.name.length < 2) return toast.error("Name is required (min 2 chars)");
     if (!/^[a-z0-9-]{2,150}$/.test(form.slug)) return toast.error("Slug must be lowercase, digits, and hyphens only");
     if (form.validity_days <= 0) return toast.error("Validity days must be > 0");
-    if (form.price < 0) return toast.error("Price cannot be negative");
+    if (form.payment_type === "one_time" && form.price < 0) return toast.error("Price cannot be negative");
+    if (form.payment_type === "subscription") {
+      if (!(form.price > 0)) return toast.error("Subscription programs need a monthly/yearly price > 0");
+      if (!["monthly", "half_yearly", "yearly"].includes(form.subscription_frequency)) {
+        return toast.error("Pick a subscription frequency");
+      }
+    }
 
     setBusy(true);
     try {
@@ -141,6 +155,15 @@ export default function AdminPrograms() {
       // Clean fields the server rejects when null/empty
       if (!body.category_id) delete body.category_id;
       if (!body.payment_mode) delete body.payment_mode;
+      // Free programs get zero price. Non-subscription programs drop the freq.
+      if (body.payment_type === "free") {
+        body.price = 0;
+        body.discount = 0;
+      }
+      if (body.payment_type !== "subscription") {
+        delete body.subscription_frequency;
+      }
+      body.is_subscription = body.payment_type === "subscription";
       body.price = Number(body.price);
       body.discount = Number(body.discount);
       body.gst_percent = Number(body.gst_percent);
@@ -449,13 +472,61 @@ export default function AdminPrograms() {
               testid="admin-program-field-banner"
             />
 
+            <div className="col-span-2 rounded-lg border border-[hsl(var(--rw-royal))]/20 bg-[hsl(var(--rw-sky-soft))]/40 p-3">
+              <Label className="mb-2 block text-xs font-semibold uppercase tracking-widest text-[hsl(var(--rw-royal))]">Payment type</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: "free", label: "Free", hint: "No payment — user joins instantly." },
+                  { value: "one_time", label: "One-Time", hint: "Existing Razorpay checkout." },
+                  { value: "subscription", label: "Subscription", hint: "Razorpay AutoPay mandate." },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setField("payment_type")(opt.value)}
+                    className={`rounded-lg border p-3 text-left text-xs transition ${
+                      form.payment_type === opt.value
+                        ? "border-[hsl(var(--rw-royal))] bg-white shadow-sm"
+                        : "border-neutral-200 bg-white/60 hover:border-neutral-300"
+                    }`}
+                    data-testid={`admin-program-payment-type-${opt.value}`}
+                  >
+                    <div className="text-sm font-semibold">{opt.label}</div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">{opt.hint}</div>
+                  </button>
+                ))}
+              </div>
+              {form.payment_type === "subscription" && (
+                <div className="mt-3">
+                  <Label>Frequency *</Label>
+                  <Select
+                    value={form.subscription_frequency}
+                    onValueChange={setField("subscription_frequency")}
+                  >
+                    <SelectTrigger data-testid="admin-program-field-frequency">
+                      <SelectValue placeholder="Choose frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">Monthly (every 1 month)</SelectItem>
+                      <SelectItem value="half_yearly">Half-Yearly (every 6 months)</SelectItem>
+                      <SelectItem value="yearly">Yearly (every 12 months)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Razorpay AutoPay will auto-deduct this amount at the chosen interval after the user approves the mandate.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div>
-              <Label>Price (₹) *</Label>
+              <Label>{form.payment_type === "free" ? "Price (₹) — locked to 0" : "Price (₹) *"}</Label>
               <Input
                 type="number"
                 min={0}
                 value={form.price}
                 onChange={(e) => setField("price")(e.target.value)}
+                disabled={form.payment_type === "free"}
                 data-testid="admin-program-field-price"
               />
             </div>
@@ -550,16 +621,6 @@ export default function AdminPrograms() {
               <div>
                 <div className="text-sm font-medium">Published</div>
                 <div className="text-[11px] text-muted-foreground">Visible in user app</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 rounded-lg border p-3">
-              <Switch
-                checked={form.is_subscription}
-                onCheckedChange={setField("is_subscription")}
-              />
-              <div>
-                <div className="text-sm font-medium">Subscription program</div>
-                <div className="text-[11px] text-muted-foreground">Recurring, not one-time</div>
               </div>
             </div>
             <div className="flex items-center gap-3 rounded-lg border p-3">

@@ -38,6 +38,23 @@ export const paymentsApi = {
       .post("/payments/subscription", { program_id: programId, plan })
       .then((r) => r.data),
 
+  // ---- 2026-02: real Razorpay AutoPay flow ----
+  subscriptionInit: (programId) =>
+    api
+      .post("/payments/subscription/init", { program_id: programId })
+      .then((r) => r.data),
+
+  subscriptionVerify: (subscriptionId) =>
+    api
+      .post(`/payments/subscription/${subscriptionId}/verify`)
+      .then((r) => r.data),
+
+  enrolFree: (programId) =>
+    api.post(`/programs/${programId}/enrol-free`).then((r) => r.data),
+
+  myEnrolments: () =>
+    api.get("/programs/me/enrolments").then((r) => r.data),
+
   mySubscriptions: () =>
     api.get("/payments/subscription/me").then((r) => r.data),
 
