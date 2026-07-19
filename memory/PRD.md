@@ -846,3 +846,46 @@ Also (once) go to Razorpay Dashboard → Settings → Webhooks and make sure
 these subscription events are subscribed alongside the one-time events:
 subscription.authenticated, subscription.charged, subscription.completed,
 subscription.cancelled, subscription.halted, subscription.pending.
+
+## 2026-07-19 — Payment failure handling (scenarios B/C/D/E/F)
+
+Every payment-failure path now has a defined behaviour with an in-app
+notification so users are never left guessing why access didn't unlock.
+
+### Backend
+- `services/notify.py` — added `subscription_renewal_pending()` and
+  `subscription_halted()` helpers. Both use `dedup_key` so retry storms
+  never flood the user's bell icon.
+- `routes/payments.py` `_handle_subscription_webhook`:
+  - `subscription.pending` → status='pending' + "Renewal payment failed" notification.
+  - `subscription.halted`  → status='halted'  + "Auto-renewal stopped" notification.
+- `routes/payments.py` top-level webhook now also handles
+  `payment.failed` on one-time orders: marks `payment_orders.status='failed'`,
+  stores `failure_reason`, and notifies the user. Never overwrites a
+  subsequent successful capture.
+- `routes/qa.py` — new admin endpoint `GET /admin/qa/failed-subscriptions`
+  returning halted/pending subs enriched with the user's name/email.
+
+### Frontend
+- `MySubscriptions.jsx` — halted subs get a red banner + "Retry with new
+  mandate" button (data-testid `subscription-retry-btn-{sid}`). Cancel is
+  suppressed on halted (mandate is already dead). Retry opens
+  `SubscriptionCheckoutModal` with the same `program_id`; the reuse logic
+  in `/subscription/init` skips the terminal row and starts a fresh mandate.
+- `SubscriptionCheckoutModal.jsx` — pollVerify timeout copy is now
+  specific ("Common reasons: cancelled UPI approval, bank declined…").
+- `AdminLiveCheck.jsx` — new "Failed subscriptions" card (data-testid
+  `live-check-failed-subs-card`) between coverage checklist and events.
+  Shows count badge + refresh + per-row program/user/status detail.
+
+### Behaviour (per user choices)
+- 1a — All scenarios B/C/D/E/F built.
+- 2a — In-app notifications only (bell icon). No email/SMS.
+- 3a — Halted subs keep current-cycle access until natural expiry; user
+  taps Retry to start a fresh mandate.
+
+### Tests
+- `/app/test_reports/iteration_31.json` — **8/8 backend pytests + full
+  frontend Playwright flow green.** Coverage: pending/halted dedup,
+  one-time payment.failed order-status write + notification, failed-subs
+  admin endpoint, retry flow from halted, no regressions.
