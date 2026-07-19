@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -456,6 +457,197 @@ async def verify_payment(
     )
 
 
+# ---------------------------------------------------------------------------
+# Reconciliation — for the Razorpay UPI checkout race where Checkout.js shows
+# "Payment Failed" to the user even though the payment succeeded on
+# Razorpay's servers (money debited, webhook fires). Frontend calls this
+# endpoint after Checkout closes to ask Razorpay's authoritative API for
+# the true order status.
+# ---------------------------------------------------------------------------
+
+async def _complete_purchase_from_paid_order(
+    database, order: dict, razorpay_payment_id: str,
+    razorpay_signature: str | None = None, actor_id: str | None = None,
+) -> dict:
+    """Idempotently create a purchase row from a Razorpay order that has
+    been confirmed paid (either via /verify signature check OR via
+    /reconcile-order fetch OR via `payment.captured` webhook). Returns
+    the purchase document (existing or newly created)."""
+    # Idempotent — if purchase already exists for this order, return it.
+    existing = await database.program_purchases.find_one(
+        {"payment_order_id": order["id"], "deleted_at": None}
+    )
+    if existing:
+        return existing
+    # Race-safe fallback in case only razorpay_payment_id is present.
+    if razorpay_payment_id:
+        rp_dup = await database.program_purchases.find_one(
+            {"razorpay_payment_id": razorpay_payment_id, "deleted_at": None}
+        )
+        if rp_dup:
+            return rp_dup
+
+    program = await database.programs.find_one({"id": order["program_id"], "deleted_at": None})
+    if not program:
+        raise HTTPException(404, "Program disappeared")
+    now = datetime.now(timezone.utc)
+    expiry = compute_expiry(now, int(program.get("validity_days") or 365))
+    breakdown = order["breakdown"]
+    invoice_number = f"INV-{uuid.uuid4().hex[:12].upper()}"
+
+    purchase_doc = {
+        "id": str(uuid.uuid4()),
+        "user_membership_id": order["user_membership_id"],
+        "program_id": order["program_id"],
+        "payment_order_id": order["id"],
+        "razorpay_order_id": order["order_id"],
+        "razorpay_payment_id": razorpay_payment_id,
+        "price_paid": breakdown["price"],
+        "discount": breakdown["discount"],
+        "taxable_amount": breakdown["taxable"],
+        "gst_percent": breakdown["gst_percent"],
+        "gst_amount": breakdown["gst_amount"],
+        "total": breakdown["total"],
+        "invoice_number": invoice_number,
+        "purchase_date": now.isoformat(),
+        "expiry_date": expiry.isoformat(),
+        "renewal_date": None,
+        "status": "active",
+        "payment_status": "captured",
+        "source": "razorpay",
+        "is_mock": bool(order.get("is_mock", False)),
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+        "deleted_at": None,
+    }
+    await database.program_purchases.insert_one(purchase_doc)
+
+    await database.payment_orders.update_one(
+        {"_id": order["_id"]},
+        {"$set": {
+            "status": "paid",
+            "razorpay_payment_id": razorpay_payment_id,
+            **({"razorpay_signature": razorpay_signature} if razorpay_signature else {}),
+            "verified_at": _now_iso(),
+            "purchase_id": purchase_doc["id"],
+            "updated_at": _now_iso(),
+        }},
+    )
+
+    # Invoice PDF (best-effort — never fail purchase completion on this).
+    try:
+        user = await database.users.find_one({"membership_id": order["user_membership_id"], "deleted_at": None}) or {}
+        company_gst = await _get_setting(database, "company_gst_number", "")
+        generate_invoice_pdf(purchase=purchase_doc, program=program, user=user, company_gst_number=company_gst)
+    except Exception:  # noqa: BLE001
+        logger.exception("Invoice PDF generation failed")
+
+    # Commissions.
+    try:
+        await create_commissions_for_purchase(database, purchase_doc)
+    except Exception:  # noqa: BLE001
+        logger.exception("Commission engine failed")
+
+    # Notification + audit.
+    try:
+        from app.services.notify import payment_success as _notify_success
+        await _notify_success(
+            database,
+            membership_id=order["user_membership_id"],
+            program_name=program.get("name", "your program"),
+            amount=float(purchase_doc["total"]),
+            source="razorpay",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    await database.activity_log.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "actor_membership_id": actor_id or order["user_membership_id"],
+            "action": "payment.reconciled" if not razorpay_signature else "payment.verified",
+            "target": order["order_id"],
+            "meta": {"program_id": order["program_id"], "amount": breakdown["total"]},
+            "created_at": _now_iso(),
+        }
+    )
+    return purchase_doc
+
+
+class ReconcileOrderRequest(BaseModel):
+    razorpay_order_id: str = Field(..., min_length=1, max_length=64)
+
+
+@router.post("/reconcile-order")
+async def reconcile_order(
+    body: ReconcileOrderRequest,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    """Reconcile a Razorpay order against their authoritative API.
+
+    Called by the frontend after Checkout closes (either via `handler` or
+    `ondismiss`). Handles the well-known UPI race where Razorpay Checkout
+    shows "Payment Failed" while the payment actually succeeded.
+
+    - If Razorpay says the order is `paid`, we look up the captured
+      payment and complete the purchase idempotently — even if the
+      signature-verify flow was never called.
+    - If Razorpay says it's not yet paid, we return the current status so
+      the frontend can decide whether to keep polling.
+    """
+    order = await database.payment_orders.find_one(
+        {"order_id": body.razorpay_order_id, "deleted_at": None}
+    )
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order["user_membership_id"] != current["membership_id"]:
+        raise HTTPException(403, "Order does not belong to current user")
+
+    # Fast-path: already completed.
+    if order.get("status") == "paid":
+        purchase = await database.program_purchases.find_one({"payment_order_id": order["id"], "deleted_at": None})
+        return {
+            "status": "paid",
+            "purchase_id": purchase["id"] if purchase else None,
+            "razorpay_payment_id": order.get("razorpay_payment_id"),
+        }
+
+    # Ask Razorpay for the current authoritative state.
+    from app.services import payment as _pay
+    client = _pay._client()  # noqa: SLF001
+    if client is None:
+        # Mock mode — nothing to reconcile; report current local status.
+        return {"status": order.get("status", "created"), "purchase_id": None}
+
+    try:
+        live_order = client.order.fetch(order["order_id"])
+        payments = client.order.payments(order["order_id"]) or {}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"Razorpay reconcile fetch failed: {exc}") from exc
+
+    live_status = (live_order or {}).get("status")
+    items = (payments or {}).get("items") or []
+    captured = next((p for p in items if p.get("status") == "captured"), None)
+
+    if live_status == "paid" and captured:
+        purchase = await _complete_purchase_from_paid_order(
+            database,
+            order=order,
+            razorpay_payment_id=captured["id"],
+            actor_id=current["membership_id"],
+        )
+        return {
+            "status": "paid",
+            "purchase_id": purchase["id"],
+            "razorpay_payment_id": captured["id"],
+        }
+    return {
+        "status": live_status or order.get("status") or "created",
+        "razorpay_payment_id": None,
+    }
+
+
 # ---------------- webhook -------------------------------------------------
 
 
@@ -510,6 +702,37 @@ async def razorpay_webhook(request: Request):
         except Exception:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).exception("subscription webhook handler failed")
+
+        # ---- One-time payment auto-complete.
+        # `payment.captured` and `order.paid` fire when Razorpay has debited
+        # the user successfully. If Checkout.js showed a spurious "Payment
+        # Failed" and never triggered /verify, this webhook is the only
+        # authoritative path to grant program access. Idempotent via
+        # _complete_purchase_from_paid_order().
+        try:
+            if event in ("payment.captured", "order.paid"):
+                pay_entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
+                order_entity = ((payload.get("payload") or {}).get("order") or {}).get("entity") or {}
+                rp_order_id = pay_entity.get("order_id") or order_entity.get("id")
+                rp_payment_id = pay_entity.get("id")
+                if rp_order_id and rp_payment_id:
+                    order_doc = await database.payment_orders.find_one(
+                        {"order_id": rp_order_id, "deleted_at": None}
+                    )
+                    if order_doc and order_doc.get("status") != "paid":
+                        try:
+                            await _complete_purchase_from_paid_order(
+                                database,
+                                order=order_doc,
+                                razorpay_payment_id=rp_payment_id,
+                                actor_id=None,
+                            )
+                        except Exception:  # noqa: BLE001
+                            import logging
+                            logging.getLogger(__name__).exception("payment.captured completion failed")
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception("one-time webhook handler failed")
 
     return WebhookAck()
 

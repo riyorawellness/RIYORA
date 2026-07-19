@@ -73,6 +73,40 @@ export default function CheckoutModal({ open, onOpenChange, programId, onSuccess
       setError("Could not load Razorpay Checkout. Check your connection.");
       return;
     }
+    // Reconcile against Razorpay's authoritative API. Handles the
+    // well-known UPI Checkout race where Checkout.js shows a spurious
+    // "Payment Failed" modal even though the payment succeeded and money
+    // was debited. Polls up to 6 × 2s = 12s.
+    let reconciled = false;
+    const reconcile = async () => {
+      if (reconciled) return;
+      reconciled = true;
+      setStatus("processing");
+      for (let attempt = 0; attempt < 6; attempt++) {
+        try {
+          const res = await paymentsApi.reconcileOrder(order.order_id);
+          if (res.status === "paid" && res.purchase_id) {
+            setStatus("success");
+            toast.success("Payment received — program unlocked.");
+            onSuccess?.({
+              purchase_id: res.purchase_id,
+              razorpay_payment_id: res.razorpay_payment_id,
+            });
+            return;
+          }
+        } catch (_) { /* transient, retry */ }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      // 12s of Razorpay silence — the webhook may still be en-route.
+      // Return to the ready state so the user can try again (idempotent
+      // — if the payment did succeed, the next attempt will surface the
+      // existing purchase via the /verify short-circuit).
+      setStatus("ready");
+      setError(
+        "If your bank has already debited you, your program will unlock automatically within a minute. Otherwise, please try again.",
+      );
+    };
+
     const opts = {
       key: order.key_id,
       amount: order.amount_paise,
@@ -87,6 +121,9 @@ export default function CheckoutModal({ open, onOpenChange, programId, onSuccess
       },
       notes: order.notes,
       theme: { color: config?.checkout_theme?.color || "#0B1A5B" },
+      // Turn off Razorpay's built-in retry / failure-recovery modal.
+      // We own reconciliation via /reconcile-order.
+      retry: { enabled: false },
       handler: async (rzpResponse) => {
         setStatus("processing");
         try {
@@ -95,18 +132,24 @@ export default function CheckoutModal({ open, onOpenChange, programId, onSuccess
             payment_id: rzpResponse.razorpay_payment_id,
             signature: rzpResponse.razorpay_signature,
           });
+          reconciled = true;
           setStatus("success");
           toast.success("Payment successful");
           onSuccess?.(res);
         } catch (e) {
-          setStatus("ready");
-          setError(formatApiError(e, "Payment verification failed"));
+          // Signature-verify failed OR our backend errored. Fall back to
+          // reconciliation via Razorpay's authoritative order state.
+          console.warn("verifyPayment failed, reconciling instead:", e);
+          reconcile();
         }
       },
       modal: {
+        // Fires on X, tap-outside, and on the Razorpay "Payment Failed"
+        // dismissal. Always reconcile — the mandate may have actually gone
+        // through despite the failure modal.
         ondismiss: () => {
           if (status === "processing") return;
-          setStatus("ready");
+          reconcile();
         },
       },
     };

@@ -52,6 +52,11 @@ export const paymentsApi = {
   enrolFree: (programId) =>
     api.post(`/programs/${programId}/enrol-free`).then((r) => r.data),
 
+  reconcileOrder: (razorpayOrderId) =>
+    api
+      .post("/payments/reconcile-order", { razorpay_order_id: razorpayOrderId })
+      .then((r) => r.data),
+
   myEnrolments: () =>
     api.get("/programs/me/enrolments").then((r) => r.data),
 
