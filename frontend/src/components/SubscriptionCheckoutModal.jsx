@@ -101,6 +101,22 @@ export default function SubscriptionCheckoutModal({
       setError("Could not load Razorpay Checkout. Check your connection.");
       return;
     }
+    // -----------------------------------------------------------------
+    // Razorpay Subscription Checkout — key differences vs one-time:
+    //   • method: { upi: true }          → force UPI as primary tender
+    //     (without this Razorpay defaults to card and instantly closes
+    //     because UPI mandates need explicit method selection)
+    //   • recurring: 1                   → tells Checkout this is a mandate,
+    //     not a one-shot payment
+    //   • retry: { enabled: true, max_count: 4 } → Razorpay's own retry
+    //     helps when the first UPI app times out
+    //   • rzp.on('payment.failed', ...)  → capture the ACTUAL error
+    //     ('International cards not allowed on subscriptions', 'AutoPay
+    //     not enabled for merchant', 'Amount exceeds UPI mandate limit',
+    //     etc.) instead of silently closing.
+    // Ref: https://razorpay.com/docs/payments/subscriptions/ +
+    //      https://razorpay.com/docs/payments/subscriptions/supported-payment-methods/
+    // -----------------------------------------------------------------
     const opts = {
       key: session.key_id,
       subscription_id: session.subscription_id,
@@ -119,11 +135,15 @@ export default function SubscriptionCheckoutModal({
       },
       theme: { color: "#0B1A5B" },
       recurring: 1,
-      retry: { enabled: false },
+      method: { upi: true, card: true, netbanking: false, wallet: false },
+      retry: { enabled: true, max_count: 4 },
       handler: async () => {
         pollVerify();
       },
       modal: {
+        // If the user closes the modal mid-mandate, still reconcile — the
+        // mandate could have been authenticated & first cycle charged even
+        // if Checkout showed a failure state.
         ondismiss: () => {
           if (status === "processing") return;
           pollVerify();
@@ -131,6 +151,21 @@ export default function SubscriptionCheckoutModal({
       },
     };
     const rzp = new Rzp(opts);
+    // Surface Razorpay's real error instead of silently timing out.
+    rzp.on("payment.failed", (resp) => {
+      const err = resp?.error || {};
+      const parts = [
+        err.description,
+        err.reason,
+        err.source && `source=${err.source}`,
+        err.step && `step=${err.step}`,
+        err.code && `code=${err.code}`,
+      ].filter(Boolean);
+      const msg = parts.length ? parts.join(" · ") : "Razorpay declined the payment.";
+      setStatus("ready");
+      setError(msg);
+      console.error("[Razorpay Subscription] payment.failed:", resp);
+    });
     rzp.open();
   };
 
