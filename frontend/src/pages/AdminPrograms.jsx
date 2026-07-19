@@ -507,13 +507,13 @@ export default function AdminPrograms() {
                       <SelectValue placeholder="Choose frequency" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="monthly">Monthly (every 1 month)</SelectItem>
-                      <SelectItem value="half_yearly">Half-Yearly (every 6 months)</SelectItem>
-                      <SelectItem value="yearly">Yearly (every 12 months)</SelectItem>
+                      <SelectItem value="monthly">Monthly (30 days)</SelectItem>
+                      <SelectItem value="half_yearly">Half-Yearly (180 days)</SelectItem>
+                      <SelectItem value="yearly">Yearly (365 days)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="mt-1 text-[10px] text-muted-foreground">
-                    Razorpay AutoPay will auto-deduct this amount at the chosen interval after the user approves the mandate.
+                    Each purchase grants access for one cycle. When it expires, the user pays again to renew — same Razorpay checkout as one-time. Validity days are auto-set from the frequency.
                   </p>
                 </div>
               )}

@@ -33,22 +33,10 @@ export const paymentsApi = {
       .get(`/payments/invoice/${purchaseId}`, { responseType: "blob" })
       .then((r) => r.data),
 
-  createSubscription: (programId, plan) =>
-    api
-      .post("/payments/subscription", { program_id: programId, plan })
-      .then((r) => r.data),
-
-  // ---- 2026-02: real Razorpay AutoPay flow ----
-  subscriptionInit: (programId) =>
-    api
-      .post("/payments/subscription/init", { program_id: programId })
-      .then((r) => r.data),
-
-  subscriptionVerify: (subscriptionId) =>
-    api
-      .post(`/payments/subscription/${subscriptionId}/verify`)
-      .then((r) => r.data),
-
+  // ---- Subscription helper (2026-07): frontend now uses the standard
+  // one-time checkout for subscription programs too. Every renewal is
+  // an explicit user-triggered payment for one cycle's amount. The
+  // dedicated AutoPay endpoints below have been removed as of this date.
   enrolFree: (programId) =>
     api.post(`/programs/${programId}/enrol-free`).then((r) => r.data),
 
@@ -59,15 +47,6 @@ export const paymentsApi = {
 
   myEnrolments: () =>
     api.get("/programs/me/enrolments").then((r) => r.data),
-
-  mySubscriptions: () =>
-    api.get("/payments/subscription/me").then((r) => r.data),
-
-  reconcileMySubscriptions: () =>
-    api.post("/payments/subscription/reconcile-mine").then((r) => r.data),
-
-  cancelSubscription: (id) =>
-    api.post(`/payments/subscription/${id}/cancel`).then((r) => r.data),
 
   // ------ Admin ------
   adminList: (params) =>

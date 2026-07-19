@@ -143,24 +143,10 @@ async def program_status(
         )
         if enrolment:
             enrolment.pop("_id", None)
-    # Active subscription mandate → user has access only when Razorpay has
-    # actually charged at least once (status='active' or charges_count>0).
-    # `authenticated` alone (mandate approved but no charge yet) MUST NOT
-    # unlock the program — user must pay first.
-    active_subscription = None
-    if program.get("payment_type") == "subscription":
-        active_subscription = await database.subscriptions.find_one({
-            "user_membership_id": current["membership_id"],
-            "program_id": program_id,
-            "$or": [
-                {"status": "active"},
-                {"charges_count": {"$gt": 0}},
-            ],
-            "deleted_at": None,
-        })
-        if active_subscription:
-            active_subscription.pop("_id", None)
-    has_access = bool(active) or bool(enrolment) or bool(active_subscription)
+    # Subscription programs are now handled via regular per-cycle purchases:
+    # `active_purchase` above already covers the "paid + not yet expired"
+    # case. No mandate lookup needed.
+    has_access = bool(active) or bool(enrolment)
     prog = await database.program_progress.find_one(
         {"user_membership_id": current["membership_id"], "program_id": program_id, "deleted_at": None}
     )
@@ -183,7 +169,6 @@ async def program_status(
         "program": program,
         "active_purchase": active,
         "enrolment": enrolment,
-        "active_subscription": active_subscription,
         "has_access": has_access,
         "progress": prog,
         "certificate": cert,
@@ -267,8 +252,14 @@ async def admin_create_program(
     if pt == "free":
         payload["price"] = 0
         payload["discount"] = 0
-    if pt == "subscription" and not payload.get("subscription_frequency"):
-        raise HTTPException(400, "Subscription programs require a subscription_frequency.")
+    if pt == "subscription":
+        if not payload.get("subscription_frequency"):
+            raise HTTPException(400, "Subscription programs require a subscription_frequency.")
+        # Subscription "validity" == one cycle length. Whatever the admin
+        # typed for validity_days is overridden so a purchase auto-expires
+        # exactly when the next cycle should be paid.
+        from app.services.payment import FREQUENCY_TO_DAYS
+        payload["validity_days"] = FREQUENCY_TO_DAYS[payload["subscription_frequency"]]
     created = await _repo(database).create(payload, actor=admin["mobile"])
     # Broadcast to all users only if the program launches active + not admin-hidden.
     if created and created.get("is_active"):
@@ -303,11 +294,16 @@ async def admin_update_program(
         if pt == "free":
             updates["price"] = 0
             updates["discount"] = 0
-        if pt == "subscription" and not updates.get("subscription_frequency"):
-            # Fall back to existing program's stored frequency; else reject.
-            existing = await database.programs.find_one({"id": program_id})
-            if not (existing and existing.get("subscription_frequency")):
+        if pt == "subscription":
+            freq = updates.get("subscription_frequency")
+            if not freq:
+                existing = await database.programs.find_one({"id": program_id})
+                freq = existing and existing.get("subscription_frequency")
+            if not freq:
                 raise HTTPException(400, "Subscription programs require a subscription_frequency.")
+            from app.services.payment import FREQUENCY_TO_DAYS
+            updates["subscription_frequency"] = freq
+            updates["validity_days"] = FREQUENCY_TO_DAYS[freq]
     updated = await _repo(database).update(program_id, updates, actor=admin["mobile"])
     if not updated:
         raise HTTPException(404, "Program not found")

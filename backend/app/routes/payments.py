@@ -38,8 +38,6 @@ from app.models.phase2 import PaginatedResponse
 from app.models.phase5 import (
     CreateOrderRequest,
     CreateOrderResponse,
-    CreateSubscriptionRequest,
-    CreateSubscriptionResponse,
     PaymentSettingsUpdate,
     RefundRequest,
     VerifyPaymentRequest,
@@ -50,7 +48,6 @@ from app.repositories.base import BaseRepository
 from app.services.invoice import INVOICE_DIR, generate_invoice_pdf
 from app.services.payment import (
     create_order as rzp_create_order,
-    create_subscription_mock,
     is_mock as rzp_is_mock,
     key_id_for_frontend,
     verify_signature,
@@ -683,32 +680,17 @@ async def razorpay_webhook(request: Request):
             }
         )
 
-        # ---- Subscription auto-charge fan-out.
-        # These handlers are idempotent and safe to re-run on webhook retries.
-        try:
-            from app.routes.enrolments import (
-                handle_subscription_charged,
-                handle_subscription_lifecycle,
-            )
-            if event == "subscription.charged":
-                await handle_subscription_charged(database, payload)
-            elif event in {
-                "subscription.pending",
-                "subscription.halted",
-                "subscription.cancelled",
-                "subscription.completed",
-            }:
-                await handle_subscription_lifecycle(database, payload, event)
-        except Exception:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).exception("subscription webhook handler failed")
-
         # ---- One-time payment auto-complete.
         # `payment.captured` and `order.paid` fire when Razorpay has debited
         # the user successfully. If Checkout.js showed a spurious "Payment
         # Failed" and never triggered /verify, this webhook is the only
         # authoritative path to grant program access. Idempotent via
         # _complete_purchase_from_paid_order().
+        #
+        # (Subscription-specific events — subscription.charged / .pending /
+        # .halted / .cancelled — are no longer handled. Subscriptions are
+        # now implemented as manual per-cycle one-time orders, so the
+        # payment.captured branch below covers renewals too.)
         try:
             if event in ("payment.captured", "order.paid"):
                 pay_entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
@@ -806,116 +788,14 @@ def _serve_invoice(database: AsyncIOMotorDatabase, purchase: dict) -> Response:
     return FileResponse(str(path), media_type="application/pdf", filename=f"{purchase['invoice_number']}.pdf")
 
 
-# ---------------- subscription (mock only) --------------------------------
-
-
-@router.post("/subscription", response_model=CreateSubscriptionResponse, status_code=201)
-async def create_subscription(
-    body: CreateSubscriptionRequest,
-    database: AsyncIOMotorDatabase = Depends(db),
-    current: dict = Depends(get_current_user),
-):
-    program = await database.programs.find_one(
-        {"id": body.program_id, "deleted_at": None, "is_active": True, "is_subscription": True}
-    )
-    if not program:
-        raise HTTPException(404, "Subscription program not found")
-
-    # Dedupe: block if user already has an active subscription for this program.
-    existing = await database.subscriptions.find_one(
-        {
-            "user_membership_id": current["membership_id"],
-            "program_id": program["id"],
-            "status": "active",
-            "deleted_at": None,
-        }
-    )
-    if existing:
-        raise HTTPException(409, "You already have an active subscription for this program.")
-
-    sub = create_subscription_mock(program["id"], body.plan)
-    now = datetime.now(timezone.utc)
-    validity = int(program.get("validity_days") or 30)
-    doc = {
-        "id": str(uuid.uuid4()),
-        "subscription_id": sub["id"],
-        "user_membership_id": current["membership_id"],
-        "program_id": program["id"],
-        "plan": body.plan,
-        "status": "active",
-        "started_at": now.isoformat(),
-        "next_charge_at": compute_expiry(now, validity).isoformat(),
-        "is_mock": True,
-        "created_at": now.isoformat(),
-        "updated_at": now.isoformat(),
-        "deleted_at": None,
-    }
-    await database.subscriptions.insert_one(doc)
-
-    # Auto-create an active purchase so program is unlocked for the cycle.
-    invoice_number = f"SUB-{uuid.uuid4().hex[:10].upper()}"
-    breakdown = await _compute_breakdown(database, program)
-    purchase_doc = {
-        "id": str(uuid.uuid4()),
-        "user_membership_id": current["membership_id"],
-        "program_id": program["id"],
-        "subscription_id": doc["id"],
-        "razorpay_order_id": None,
-        "razorpay_payment_id": sub["id"],
-        "price_paid": breakdown["price"],
-        "discount": breakdown["discount"],
-        "taxable_amount": breakdown["taxable"],
-        "gst_percent": breakdown["gst_percent"],
-        "gst_amount": breakdown["gst_amount"],
-        "total": breakdown["total"],
-        "invoice_number": invoice_number,
-        "purchase_date": now.isoformat(),
-        "expiry_date": doc["next_charge_at"],
-        "renewal_date": doc["next_charge_at"],
-        "status": "active",
-        "payment_status": "captured",
-        "source": "subscription_mock",
-        "is_mock": True,
-        "created_at": now.isoformat(),
-        "updated_at": now.isoformat(),
-        "deleted_at": None,
-    }
-    await database.program_purchases.insert_one(purchase_doc)
-
-    # ----- Phase 6: subscription commissions -------------------------
-    try:
-        await create_commissions_for_purchase(database, purchase_doc)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Subscription commission engine failed: %s", exc)
-
-    return CreateSubscriptionResponse(
-        subscription_id=sub["id"],
-        status="active",
-        plan=body.plan,
-        next_charge_at=doc["next_charge_at"],
-        program={"id": program["id"], "name": program.get("name")},
-        is_mock=True,
-    )
-
-
-@router.get("/subscription/me")
-async def my_subscriptions(
-    database: AsyncIOMotorDatabase = Depends(db),
-    current: dict = Depends(get_current_user),
-):
-    items = []
-    async for s in database.subscriptions.find(
-        {"user_membership_id": current["membership_id"], "deleted_at": None}
-    ).sort("created_at", -1):
-        s.pop("_id", None)
-        items.append(s)
-    return {"items": items}
-
-
-# Legacy `cancel_subscription` endpoint removed — superseded by
-# app.routes.enrolments.subscription_cancel which uses the correct
-# `subscription_id` lookup (this file's version queried by legacy `id`
-# field and shadowed the new route, causing 404s).
+# ---------------- subscription ---------------------------------------------
+# All subscription endpoints have been REMOVED as of 2026-07-21.
+# Rationale: Razorpay AutoPay UPI mandates were unreliable (Checkout.js
+# false-negatives, dropped mandate authorization, orphaned mandates on
+# retry). Subscriptions are now implemented as manual per-cycle one-time
+# orders — the same `/payments/order` + `/payments/verify` flow used for
+# one-off purchases. Program.validity_days is set to the cycle length
+# (30 / 180 / 365) so a paid purchase expires exactly when renewal is due.
 
 
 # ---------------- admin ---------------------------------------------------

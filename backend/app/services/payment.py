@@ -103,121 +103,20 @@ def verify_webhook_signature(payload_bytes: bytes, signature: str, secret: str) 
     return hmac.compare_digest(expected, signature)
 
 
-# ---------- Subscriptions (Razorpay AutoPay — LIVE + MOCK) -----------------
+# ---------- Subscriptions ---------------------------------------------------
+# NOTE (2026-07-21): Razorpay AutoPay/mandate subscriptions have been REMOVED.
+# The UPI mandate flow was inherently unreliable in India — Checkout.js would
+# show spurious "Payment Failed" modals even when the mandate was authenticated
+# and money was debited, leading to double-charges and cancelled mandates when
+# users retried. Subscription programs now use the SAME one-time Razorpay
+# order flow as one-off purchases: the user pays for one cycle at a time,
+# the purchase carries an expiry_date, and when it lapses the user clicks
+# "Renew" to pay for another cycle. Simple, deterministic, no race conditions.
 
-# Razorpay period + interval mapping for our 3 supported frequencies.
-_FREQ_MAP = {
-    "monthly":     {"period": "monthly", "interval": 1},
-    "half_yearly": {"period": "monthly", "interval": 6},   # RP has no half_yearly; 6 monthly cycles.
-    "yearly":      {"period": "yearly",  "interval": 1},
+# Days per subscription cycle — used by admin create/update to auto-set
+# program.validity_days when payment_type == "subscription".
+FREQUENCY_TO_DAYS = {
+    "monthly":     30,
+    "half_yearly": 180,
+    "yearly":      365,
 }
-
-
-def create_or_reuse_plan(*, program_id: str, program_name: str,
-                        frequency: str, amount_paise: int) -> str:
-    """Create a Razorpay Plan for this program+frequency, or reuse if it
-    already exists. Returns the plan_id string.
-
-    NOTE: Razorpay Plans are immutable once created (amount/period are
-    baked in). If admin edits price/frequency, we always create a NEW
-    plan — old subscriptions keep charging at their original terms until
-    they cancel or renewal is halted.
-    """
-    freq = _FREQ_MAP.get(frequency)
-    if not freq:
-        raise ValueError(f"Unsupported subscription frequency: {frequency}")
-    plan_notes = {"program_id": program_id, "frequency": frequency, "amount": amount_paise}
-    client = _client()
-    if client is None:
-        return f"mock_plan_{program_id}_{frequency}_{amount_paise}"
-
-    plan = client.plan.create({
-        "period": freq["period"],
-        "interval": freq["interval"],
-        "item": {
-            "name": f"{program_name} ({frequency})"[:150],
-            "amount": int(amount_paise),
-            "currency": "INR",
-        },
-        "notes": plan_notes,
-    })
-    return plan["id"]
-
-
-# Razorpay-safe total_count per frequency. The `expire_at` UPI cap is 30
-# years, and Razorpay also caps total_count at ~100 for many combinations.
-# We stay well under BOTH by giving each plan a ~10-year lifetime, which
-# is plenty (a user can always re-subscribe after that).
-_TOTAL_COUNT_MAP = {
-    "monthly":     60,   # 5 years  (100-cap safe, 30yr-cap safe)
-    "half_yearly": 20,   # 10 years (60 max mathematically, we pick 20)
-    "yearly":      10,   # 10 years (30 max, we pick 10)
-}
-
-
-def _safe_total_count(frequency: str) -> int:
-    return _TOTAL_COUNT_MAP.get(frequency, 12)
-
-
-def create_subscription(*, plan_id: str, notes: dict[str, Any],
-                       total_count: int | None = None,
-                       frequency: str | None = None) -> dict[str, Any]:
-    """Create a Razorpay Subscription against a plan.
-
-    `total_count` is the maximum number of successful charges before the
-    subscription ends. Callers should pass EITHER `total_count` explicitly,
-    OR `frequency` so we pick a Razorpay-safe default (Razorpay rejects
-    total_count values that make expire_at exceed 30 years — hit by UPI —
-    or that exceed ~100 for the period/interval combination).
-
-    Returns dict with `id`, `short_url`, `status`, `plan_id`. The
-    frontend passes `id` to Checkout as `subscription_id` (NOT order_id).
-    """
-    if total_count is None:
-        total_count = _safe_total_count(frequency or "monthly")
-    client = _client()
-    if client is None:
-        return {
-            "id": f"mock_sub_{uuid.uuid4().hex[:16]}",
-            "plan_id": plan_id,
-            "status": "created",
-            "short_url": None,
-            "is_mock": True,
-        }
-    sub = client.subscription.create({
-        "plan_id": plan_id,
-        "total_count": int(total_count),
-        "customer_notify": 1,
-        "notes": notes or {},
-    })
-    sub["is_mock"] = False
-    return sub
-
-
-def fetch_subscription(sub_id: str) -> dict[str, Any]:
-    """Fetch current status of a subscription from Razorpay."""
-    client = _client()
-    if client is None:
-        # Mock — pretend it's active. Real prod always calls the API.
-        return {"id": sub_id, "status": "active", "is_mock": True}
-    return client.subscription.fetch(sub_id)
-
-
-def cancel_subscription(sub_id: str, cancel_at_cycle_end: bool = True) -> dict[str, Any]:
-    """Cancel a subscription. `cancel_at_cycle_end=True` (default) lets
-    the user keep access until the current period ends."""
-    client = _client()
-    if client is None:
-        return {"id": sub_id, "status": "cancelled", "is_mock": True}
-    return client.subscription.cancel(sub_id, {"cancel_at_cycle_end": 1 if cancel_at_cycle_end else 0})
-
-
-# Legacy mock helper — kept for any legacy caller that still imports it.
-def create_subscription_mock(program_id: str, plan: str) -> dict[str, Any]:
-    return {
-        "id": f"mock_sub_{uuid.uuid4().hex[:16]}",
-        "plan_id": f"plan_{program_id}_{plan}",
-        "status": "active",
-        "plan": plan,
-        "customer_notify": 1,
-    }

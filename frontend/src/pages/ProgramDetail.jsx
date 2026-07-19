@@ -16,7 +16,7 @@ import {
 
 import CheckoutModal from "@/components/CheckoutModal";
 import { programsApi } from "@/services/programs";
-import { paymentsApi, loadRazorpayScript } from "@/services/payments";
+import { paymentsApi } from "@/services/payments";
 import { manualPaymentsApi } from "@/services/manualPayments";
 import { useAuth } from "@/context/AuthContext";
 import { TID } from "@/constants/testIds";
@@ -60,24 +60,6 @@ export default function ProgramDetail() {
       ]);
       setStatus(st);
       setModules(mods?.modules || mods?.items || []);
-      // If this is a subscription program with a non-terminal server-side
-      // state, reconcile against Razorpay in the background so the sticky
-      // bar reflects reality (handles webhook lag / Checkout race). Best-
-      // effort — we don't block the initial render on it.
-      const isSubProgram =
-        st?.program?.payment_type === "subscription" ||
-        st?.program?.is_subscription === true;
-      if (isSubProgram && !st?.has_access) {
-        paymentsApi
-          .reconcileMySubscriptions()
-          .then((res) => {
-            if (res?.updated > 0) {
-              // Fresh status — refetch program status silently.
-              programsApi.status(id).then(setStatus).catch(() => {});
-            }
-          })
-          .catch(() => {});
-      }
       // Per-program payment mode (falls back to global)
       try {
         const modeRes = await manualPaymentsApi.getMode({ program_id: id });
@@ -110,108 +92,6 @@ export default function ProgramDetail() {
       load();
     } catch (e) {
       toast.error(formatApiError(e, "Could not enrol"));
-    }
-  };
-
-  /**
-   * Reconcile subscription status against Razorpay's authoritative API,
-   * with a longer poll (Razorpay UPI mandate authorisation can take
-   * 20–30s to flip from `created` → `authenticated` → `active`).
-   *
-   * We keep the messaging strictly honest:
-   *   - `active`         → real success, program unlocks
-   *   - `authenticated`  → mandate approved, first charge processing
-   *   - `pending`        → payment attempted, awaiting bank
-   *   - `created`        → nothing happened yet (user cancelled at Razorpay UI)
-   *   - `cancelled` / `halted` → only if RAZORPAY itself reports it
-   *
-   * We intentionally do NOT show a "cancelling payment" toast — that
-   * misled users into thinking a successful payment was being reversed.
-   */
-  const reconcileSubscription = async (subId) => {
-    // Poll up to 15 × 2s = 30s.
-    for (let attempt = 0; attempt < 15; attempt++) {
-      try {
-        const res = await paymentsApi.subscriptionVerify(subId);
-        if (res.status === "active") {
-          toast.success("Payment received — your subscription is active.");
-          load();
-          return "active";
-        }
-        if (res.status === "authenticated") {
-          if (attempt === 0) {
-            toast.success("Mandate approved. Charging your bank — this usually takes a few seconds.");
-          }
-          // keep polling — charge lands within ~30s in most cases
-        }
-        if (res.status === "cancelled" || res.status === "halted") {
-          // ONLY show a cancel message if the sub is genuinely gone from
-          // Razorpay's side AND had no successful charge — otherwise stay
-          // silent and let load() surface the real state.
-          toast.error(
-            "Your subscription could not be set up. If your bank has debited you, the amount will be auto-refunded within 5–7 working days.",
-          );
-          load();
-          return res.status;
-        }
-        if (res.status === "created" && attempt >= 5) {
-          // 10s+ still in 'created' → user almost certainly abandoned
-          // the mandate on Razorpay's screen. No debit happened.
-          load();
-          return "created";
-        }
-      } catch (_) { /* transient, retry */ }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-    // 30s elapsed and still `authenticated`/`pending` — mandate is real,
-    // charge is in flight. Tell the user honestly + refresh.
-    toast.info(
-      "Payment is being processed. Your program will unlock automatically once your bank confirms — usually within a minute.",
-    );
-    load();
-    return "unresolved";
-  };
-
-  const handleSubscribeAutoPay = async () => {
-    try {
-      const RZP = await loadRazorpayScript();
-      if (!RZP) return toast.error("Could not load Razorpay checkout.");
-      const init = await paymentsApi.subscriptionInit(id);
-      // Mock mode? Verify + succeed immediately.
-      if (init.is_mock) {
-        await paymentsApi.subscriptionVerify(init.subscription_id);
-        toast.success("Mock subscription activated.");
-        load();
-        return;
-      }
-      // `checkoutClosed` prevents double-reconciliation when both `handler`
-      // and `ondismiss` fire (Razorpay sometimes fires both).
-      let checkoutClosed = false;
-      const reconcileOnce = () => {
-        if (checkoutClosed) return;
-        checkoutClosed = true;
-        reconcileSubscription(init.subscription_id);
-      };
-      const rzp = new RZP({
-        key: init.razorpay_key_id,
-        subscription_id: init.subscription_id,
-        name: "RIYORA Wellness",
-        description: `${program.name} · Subscription`,
-        // Turn off the built-in "retry" and payment-failure recovery flows
-        // — we own reconciliation ourselves via /verify. This eliminates the
-        // "Payment could not be completed" red modal that appears even when
-        // the mandate actually succeeded on Razorpay's backend.
-        retry: { enabled: false },
-        handler: () => reconcileOnce(),
-        modal: {
-          // Fires on: user closes X, tap outside, AND on error-dismissal.
-          // Always reconcile — the mandate may have actually gone through.
-          ondismiss: () => reconcileOnce(),
-        },
-      });
-      rzp.open();
-    } catch (e) {
-      toast.error(formatApiError(e, "Could not start subscription"));
     }
   };
 
@@ -401,7 +281,7 @@ export default function ProgramDetail() {
         <div className="flex items-end justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
-              {isFree ? "Cost" : isSubscription ? `Auto-Pay · ${program.subscription_frequency?.replace("_", "-")}` : "Total"}
+              {isFree ? "Cost" : isSubscription ? `Per ${program.subscription_frequency?.replace("_", "-") || "cycle"} · Renewable` : "Total"}
             </div>
             <div className="rw-serif text-2xl text-[hsl(var(--rw-royal-deep))]">
               {isFree ? "FREE" : (
@@ -418,7 +298,7 @@ export default function ProgramDetail() {
             {!isFree && (
               <div className="text-[10px] text-muted-foreground">
                 ₹{priceAfter.toLocaleString("en-IN")} + ₹{gstAmount.toLocaleString("en-IN")} GST
-                {isSubscription && " · charged every cycle"}
+                {isSubscription && " · pay each cycle to renew"}
               </div>
             )}
           </div>
@@ -441,10 +321,10 @@ export default function ProgramDetail() {
           ) : isSubscription ? (
             <button
               className="rw-btn-pill rw-btn-primary"
-              onClick={handleSubscribeAutoPay}
+              onClick={() => setCheckoutOpen(true)}
               data-testid="program-subscribe-btn"
             >
-              Subscribe · Auto-Pay
+              Subscribe · ₹{total.toLocaleString("en-IN")}
             </button>
           ) : pendingReq ? (
             <button
