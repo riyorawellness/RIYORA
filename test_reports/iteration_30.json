@@ -1,0 +1,54 @@
+{
+  "summary": "iter30: Full re-verification of Razorpay AutoPay/UPI-mandate subscription feature with the newly added QUARTERLY frequency (90 days · total_count=40). All 20 backend pytests pass (mock mode) covering: 4-frequency admin program creation + 422 for unknown 'weekly'; /subscription/init returning is_mock/plan_id/subscription_id for each of the 4 frequencies; cycle math (30d/90d/180d/365d) with correct total_count safety caps (60/40/20/10); race-safe reuse then fresh sid after cancel; created→immediate cancel and active→cycle-end cancel; webhook subscription.charged idempotent + correct cycle days for quarterly; _friendly_razorpay_error helper source has the sub-support@razorpay.com mapping; webhook coverage returns 9 events (3 one_time + 6 subscription); one-time + free regression flows still work. All 5 frontend flows verified end-to-end in mock mode.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter30_subscription_v2.py",
+    "/app/test_reports/pytest/iter30.xml"
+  ],
+  "action_items": [
+    "None required — feature is production-ready. NOTE: RAZORPAY_MOCK_MODE has been restored to false after tests. Live merchant account may still need Razorpay to activate Subscriptions/AutoPay — /init will return HTTP 502 with the friendly 'email sub-support@razorpay.com' message until then; that is by design and not a code bug."
+  ],
+  "critical_code_review_comments": [
+    "app/services/payment.py: FREQUENCY_TO_DAYS/PLAN/TOTAL_COUNT maps are clean and symmetric across all 4 frequencies (monthly=30/60, quarterly=90/40, half_yearly=180/20, yearly=365/10). Razorpay plan interval for quarterly correctly modelled as period='monthly', interval=3 (Razorpay has no native quarterly).",
+    "app/routes/enrolments.py: _friendly_razorpay_error keyword coverage (not authorized / not activated / not enabled / unauthorized) is exhaustive; message correctly instructs user to email sub-support@razorpay.com. Also caught by the /init 502 wrapper.",
+    "app/routes/enrolments.py: subscription_init is race-safe via _razorpay_plans cache on program + reuse of most-recent usable subscription. Cancel routes correctly branch immediate vs cycle-end by status ('created' → immediate, 'active' → cycle-end).",
+    "app/routes/payments.py: _handle_subscription_webhook is idempotent by razorpay_payment_id; source='razorpay_subscription', is_subscription=true, subscription_cycle populated. cycle days derived from FREQUENCY_TO_DAYS.",
+    "app/routes/qa.py: REQUIRED_RAZORPAY_EVENTS holds 9 events (3 one_time + 6 subscription) — matches spec.",
+    "app/models/phase2.py: subscription_frequency Literal type correctly narrowed to ('monthly','quarterly','half_yearly','yearly') — 422 rejection for 'weekly' confirmed via pytest.",
+    "frontend/src/pages/AdminPrograms.jsx: payment type picker has all 3 buttons (free/one_time/subscription); frequency Select has exactly 4 SelectItems with 'Monthly (30 days)/Quarterly (90 days)/Half-Yearly (180 days)/Yearly (365 days)' labels.",
+    "frontend/src/components/SubscriptionCheckoutModal.jsx: freqLabel uses (frequency).replace('_','-'), so half_yearly renders as 'half-yearly'. For quarterly the labels 'Renews quarterly' and 'Charged each quarterly' render correctly. 8-attempt/2s poll on /verify materialised purchase within one iteration in mock mode.",
+    "frontend/src/pages/MySubscriptions.jsx: 4 frequency labels (Monthly / Quarterly / Half-yearly / Yearly), status chips, next-charge date, cycles counter (paid_count/total_count) all present. Cancel dialog + confirm flow verified.",
+    "frontend/src/pages/AdminLiveCheck.jsx: coverage card renders 2 columns (One-time payments · Subscriptions · AutoPay) with 9 rows total; verdict pill 'N/9 events seen'.",
+    "frontend/src/pages/Profile.jsx: profile-nav-subscriptions data-testid routes to /app/subscriptions.",
+    "frontend/src/pages/ProgramDetail.jsx: isSubscription branch takes precedence over isDummy so dummy users see Subscribe · ₹ button on subscription programs (correct behaviour)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter30_subscription_v2.py (new)",
+    "/app/backend/.env (RAZORPAY_MOCK_MODE flipped false→true for tests, RESTORED to false)"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% (5/5 flows verified)"},
+  "test_credentials": "Admin 9999999999/Admin@12345; dummy user qa-tester@example.com/tester123 (email fallback login).",
+  "seed_data_creation": "Created TEST_iter30_* programs (~10 subscription programs across 4 frequencies + 2 free/one_time) and TEST_UI30_Q_* via the Admin UI. Dummy users created with test_iter30_* email prefixes. All soft-deleteable via admin danger zone.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Razorpay AutoPay/UPI-mandate subscription feature is fully wired for all 4 frequencies (monthly/quarterly/half_yearly/yearly). Backend .env RAZORPAY_MOCK_MODE=false (restored). To reproduce in mock mode, flip to true and restart backend; use test_iter30_subscription_v2.py. On LIVE Razorpay, /subscription/init may return HTTP 502 with the 'Subscriptions is not enabled — email sub-support@razorpay.com' message until Razorpay activates Subscriptions on the merchant's MID — this is the friendly-error path, not a code bug. Legacy iter27/iter28/iter29 subscriptions remain in DB (~6 rows in Past list for qa-tester dummy).",
+  "verified_flows": [
+    "Backend: POST /api/programs/admin with subscription + each of 4 frequencies → 201 with correct frequency stored",
+    "Backend: POST /api/programs/admin with subscription_frequency='weekly' → 422",
+    "Backend: /payments/subscription/init returns is_mock=true, plan_id=mock_plan_*, subscription_id=mock_sub_*, program.subscription_frequency echoed for each of 4 frequencies",
+    "Backend: /verify materialises purchase with expiry - purchase == 30/90/180/365 days respectively; subscriptions.total_count == 60/40/20/10",
+    "Backend: reuse returns same subscription_id; cancel while created → immediate; subsequent init returns fresh subscription_id",
+    "Backend: cancel while status=active → cancel_at_cycle_end=true",
+    "Backend: subscription.charged webhook (mock_sig_xyz) creates purchase with is_subscription=true, source=razorpay_subscription, cycle days match frequency; idempotent (same payment_id fired twice creates only 1 row)",
+    "Backend: _friendly_razorpay_error source contains sub-support@razorpay.com + wired into /init as HTTPException(502)",
+    "Backend: /admin/qa/live-check/webhook-coverage returns 9 required_events (3 one_time + 6 subscription)",
+    "Backend regression: /programs/{id}/enrol-free 201 + /payments/order mock + /payments/verify mock still work",
+    "Frontend admin: payment-type picker shows 3 options; selecting Subscription reveals Frequency dropdown with exactly 4 labelled options; created Quarterly program shows Live badge + 90d validity",
+    "Frontend user: on quarterly subscription program, Subscribe · ₹352.82 button opens SubscriptionCheckoutModal with 'Renews quarterly' + 'Charged each quarterly' text + mock banner",
+    "Frontend user: Subscribe → mandate verify → modal closes → toast 'Mandate active — first cycle charged'; program page reload shows Active status; Subscribe button gone",
+    "Frontend user: /app/subscriptions shows Quarterly · ₹352.82/cycle · 1/40 cycles · Active with Cancel subscription button; profile-nav-subscriptions routes to /app/subscriptions",
+    "Frontend user: Cancel confirm dialog → confirms → subscription moves to Past · Cancelled; toast 'Cancellation scheduled — access continues until the current cycle ends.'",
+    "Frontend admin: /admin/qa/live-check coverage-checklist shows 2 columns × 9 rows total, verdict '2/9 events seen'"
+  ]
+}

@@ -193,13 +193,20 @@ async def live_check_webhook_events(
     return {"events": events, "count": len(events)}
 
 
-# Events the Razorpay dashboard MUST be configured to send for one-time
-# payment webhooks to complete purchases even if Checkout.js showed a spurious
-# failure. Subscription events are no longer used (feature removed 2026-07-19).
+# Events the Razorpay dashboard MUST be configured to send for both one-time
+# payments and subscription (AutoPay/UPI mandate) flows to work end-to-end.
 REQUIRED_RAZORPAY_EVENTS = [
+    # One-time
     "payment.captured",
     "order.paid",
     "payment.failed",
+    # Subscriptions
+    "subscription.authenticated",
+    "subscription.charged",
+    "subscription.completed",
+    "subscription.cancelled",
+    "subscription.halted",
+    "subscription.pending",
 ]
 
 
@@ -236,7 +243,7 @@ async def live_check_webhook_coverage(
             "event": name,
             "seen": name in seen_map,
             "last_seen_at": seen_map.get(name),
-            "category": "one_time",
+            "category": "subscription" if name.startswith("subscription.") else "one_time",
         })
 
     return {

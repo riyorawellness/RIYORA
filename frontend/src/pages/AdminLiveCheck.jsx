@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   RefreshCw, Loader2, CheckCircle2, XCircle, PlayCircle, Send,
   ShieldCheck, ShieldAlert, Webhook, MessageSquareText, CreditCard, Copy,
-  ListChecks,
+  ListChecks, Repeat,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -296,15 +296,33 @@ export default function AdminLiveCheck() {
             </div>
 
             {coverage ? (
-              <div className="mt-4 space-y-1" data-testid="coverage-checklist">
-                <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <CreditCard className="h-3.5 w-3.5" /> One-time payments
+              <div className="mt-4 grid gap-4 md:grid-cols-2" data-testid="coverage-checklist">
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <CreditCard className="h-3.5 w-3.5" /> One-time payments
+                  </div>
+                  <div className="space-y-1">
+                    {coverage.checklist
+                      .filter((c) => c.category === "one_time")
+                      .map((c) => (
+                        <CoverageRow key={c.event} c={c} />
+                      ))}
+                  </div>
                 </div>
-                {coverage.checklist.map((c) => (
-                  <CoverageRow key={c.event} c={c} />
-                ))}
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Repeat className="h-3.5 w-3.5" /> Subscriptions · AutoPay
+                  </div>
+                  <div className="space-y-1">
+                    {coverage.checklist
+                      .filter((c) => c.category === "subscription")
+                      .map((c) => (
+                        <CoverageRow key={c.event} c={c} />
+                      ))}
+                  </div>
+                </div>
                 {coverage.extra_events_seen?.length > 0 && (
-                  <div className="mt-2 rounded-md bg-neutral-50 p-2 text-[11px]">
+                  <div className="md:col-span-2 mt-2 rounded-md bg-neutral-50 p-2 text-[11px]">
                     <div className="font-semibold text-muted-foreground">Other events observed:</div>
                     <div className="mt-1 font-mono text-[10px]">
                       {coverage.extra_events_seen.join(" · ")}

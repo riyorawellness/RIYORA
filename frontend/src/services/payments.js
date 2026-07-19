@@ -33,6 +33,19 @@ export const paymentsApi = {
       .get(`/payments/invoice/${purchaseId}`, { responseType: "blob" })
       .then((r) => r.data),
 
+  // ---- Subscription (Razorpay AutoPay / UPI Mandate) ---------------------
+  subscriptionInit: (programId) =>
+    api.post("/payments/subscription/init", { program_id: programId }).then((r) => r.data),
+
+  subscriptionVerify: (subscriptionId) =>
+    api.post(`/payments/subscription/${subscriptionId}/verify`).then((r) => r.data),
+
+  subscriptionCancel: (subscriptionId) =>
+    api.post(`/payments/subscription/${subscriptionId}/cancel`).then((r) => r.data),
+
+  mySubscriptions: () =>
+    api.get("/payments/subscription/me").then((r) => r.data),
+
   enrolFree: (programId) =>
     api.post(`/programs/${programId}/enrol-free`).then((r) => r.data),
 

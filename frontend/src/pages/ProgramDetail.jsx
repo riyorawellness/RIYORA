@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import CheckoutModal from "@/components/CheckoutModal";
+import SubscriptionCheckoutModal from "@/components/SubscriptionCheckoutModal";
 import { programsApi } from "@/services/programs";
 import { paymentsApi } from "@/services/payments";
 import { manualPaymentsApi } from "@/services/manualPayments";
@@ -48,6 +49,7 @@ export default function ProgramDetail() {
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [subOpen, setSubOpen] = useState(false);
   const [paymentMode, setPaymentMode] = useState("razorpay");
   const [pendingReq, setPendingReq] = useState(null);
 
@@ -110,12 +112,10 @@ export default function ProgramDetail() {
     );
   }
   const program = status.program;
-  // Legacy programs may still have payment_type='subscription' — treat them
-  // as one_time (Razorpay Subscriptions/AutoPay removed 2026-07-19).
-  const rawPaymentType = program.payment_type ||
-    (Number(program.price) === 0 ? "free" : "one_time");
-  const paymentType = rawPaymentType === "subscription" ? "one_time" : rawPaymentType;
+  const paymentType = program.payment_type ||
+    (program.is_subscription ? "subscription" : Number(program.price) === 0 ? "free" : "one_time");
   const isFree = paymentType === "free";
+  const isSubscription = paymentType === "subscription";
   const hasAccess = !!status.has_access;
   const priceAfter = (program.price || 0) - (program.discount || 0);
   const gstPercent = Number(program.gst_percent ?? 18);
@@ -147,7 +147,9 @@ export default function ProgramDetail() {
         </button>
         <div className="absolute inset-x-0 bottom-0 p-5 text-white">
           <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-white/70">
-            {program.level
+            {program.is_subscription
+              ? "Subscription"
+              : program.level
               ? `Level ${program.level}`
               : ""}
           </p>
@@ -281,7 +283,7 @@ export default function ProgramDetail() {
         <div className="flex items-end justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
-              {isFree ? "Cost" : "Total"}
+              {isFree ? "Cost" : isSubscription ? `Per ${program.subscription_frequency?.replace("_", "-") || "cycle"} · AutoPay` : "Total"}
             </div>
             <div className="rw-serif text-2xl text-[hsl(var(--rw-royal-deep))]">
               {isFree ? "FREE" : (
@@ -298,6 +300,7 @@ export default function ProgramDetail() {
             {!isFree && (
               <div className="text-[10px] text-muted-foreground">
                 ₹{priceAfter.toLocaleString("en-IN")} + ₹{gstAmount.toLocaleString("en-IN")} GST
+                {isSubscription && " · debits automatically each cycle"}
               </div>
             )}
           </div>
@@ -316,6 +319,14 @@ export default function ProgramDetail() {
               data-testid="program-free-enrol-btn"
             >
               Join for free
+            </button>
+          ) : isSubscription ? (
+            <button
+              className="rw-btn-pill rw-btn-primary"
+              onClick={() => setSubOpen(true)}
+              data-testid="program-subscribe-btn"
+            >
+              Subscribe · ₹{total.toLocaleString("en-IN")}
             </button>
           ) : pendingReq ? (
             <button
@@ -392,6 +403,17 @@ export default function ProgramDetail() {
         onSuccess={(res) => {
           setCheckoutOpen(false);
           toast.success(`Access unlocked · Invoice ${res.invoice_number}`);
+          load();
+        }}
+      />
+
+      <SubscriptionCheckoutModal
+        open={subOpen}
+        onOpenChange={setSubOpen}
+        programId={id}
+        onSuccess={() => {
+          setSubOpen(false);
+          toast.success("Subscription active — enjoy!");
           load();
         }}
       />

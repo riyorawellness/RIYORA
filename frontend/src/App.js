@@ -32,6 +32,7 @@ import PaymentHistory from "@/pages/PaymentHistory";
 import AdminPaymentSettings from "@/pages/AdminPaymentSettings";
 import AdminPendingPayments from "@/pages/AdminPendingPayments";
 import Purchases from "@/pages/Purchases";
+import MySubscriptions from "@/pages/MySubscriptions";
 import Commissions from "@/pages/Commissions";
 import Payouts from "@/pages/Payouts";
 import Reports from "@/pages/Reports";
@@ -98,6 +99,7 @@ function App() {
             <Route path="profile/edit" element={<EditProfile />} />
             <Route path="profile/change-request" element={<ChangeRequestPage />} />
             <Route path="purchases" element={<Purchases />} />
+            <Route path="subscriptions" element={<MySubscriptions />} />
             <Route path="commissions" element={<Commissions />} />
             <Route path="payouts" element={<Payouts />} />
             <Route path="reports" element={<Reports />} />

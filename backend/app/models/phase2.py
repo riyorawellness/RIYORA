@@ -107,7 +107,7 @@ class ProgramCreate(BaseModel):
     # payment_type=one_time → existing Razorpay flow
     # payment_type=subscription → Razorpay AutoPay recurring
     payment_type: Literal["free", "one_time", "subscription"] = "one_time"
-    subscription_frequency: Optional[Literal["monthly", "half_yearly", "yearly"]] = None
+    subscription_frequency: Optional[Literal["monthly", "quarterly", "half_yearly", "yearly"]] = None
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Literal["sequential", "free"] = "sequential"
 
@@ -129,7 +129,7 @@ class ProgramUpdate(BaseModel):
     is_featured: Optional[bool] = None
     payment_mode: Optional[Literal["manual_qr", "razorpay", "both"]] = None
     payment_type: Optional[Literal["free", "one_time", "subscription"]] = None
-    subscription_frequency: Optional[Literal["monthly", "half_yearly", "yearly"]] = None
+    subscription_frequency: Optional[Literal["monthly", "quarterly", "half_yearly", "yearly"]] = None
     level: Optional[int] = Field(default=None, ge=0, le=10)
     access_mode: Optional[Literal["sequential", "free"]] = None
 
