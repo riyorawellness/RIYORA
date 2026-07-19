@@ -12,10 +12,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # System deps needed for building Python wheels + running the app.
+# `mongodb-database-tools` provides `mongodump` / `mongorestore` used by
+# the in-app backup+restore feature (Admin → Backups) and by the "auto
+# backup before wipe" flow in the Danger Zone. Without it, backups fail
+# with "mongodump: not found" (exit 127).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential curl ca-certificates \
+      build-essential curl ca-certificates gnupg \
       libjpeg-dev zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+ && ARCH="$(dpkg --print-architecture)" \
+ && case "$ARCH" in \
+      amd64)  MTOOLS_URL="https://fastdl.mongodb.org/tools/db/mongodb-database-tools-debian12-x86_64-100.10.0.deb" ;; \
+      arm64)  MTOOLS_URL="https://fastdl.mongodb.org/tools/db/mongodb-database-tools-debian12-arm64-100.10.0.deb" ;; \
+      *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
+    esac \
+ && curl -fsSL -o /tmp/mongotools.deb "$MTOOLS_URL" \
+ && apt-get install -y --no-install-recommends /tmp/mongotools.deb \
+ && rm -f /tmp/mongotools.deb \
+ && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first (better layer caching).
 COPY requirements.txt .

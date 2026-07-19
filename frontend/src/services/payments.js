@@ -63,6 +63,9 @@ export const paymentsApi = {
   mySubscriptions: () =>
     api.get("/payments/subscription/me").then((r) => r.data),
 
+  reconcileMySubscriptions: () =>
+    api.post("/payments/subscription/reconcile-mine").then((r) => r.data),
+
   cancelSubscription: (id) =>
     api.post(`/payments/subscription/${id}/cancel`).then((r) => r.data),
 

@@ -43,6 +43,9 @@ services:
     volumes:
       # Firebase service account JSON — NEVER put this in git.
       - ../backend/firebase-admin.json:/app/firebase-admin.json:ro
+      # Ops scripts (backup_mongo.sh + restore_mongo.sh) — read-only.
+      # Also enables cron on the host to invoke them via docker exec.
+      - ../scripts:/app/scripts:ro
       # Upload / invoice / backup volumes so a container restart doesn't lose files.
       - uploads:/app/uploads
       - invoices:/app/invoices

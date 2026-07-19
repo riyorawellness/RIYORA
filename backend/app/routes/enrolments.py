@@ -125,38 +125,65 @@ async def subscription_init(
     if freq not in {"monthly", "half_yearly", "yearly"}:
         raise HTTPException(400, "Program missing a valid subscription_frequency.")
 
-    # Refuse ONLY if user already has an actually-paid subscription (either
-    # authenticated with a first charge, or active). Stale `created` /
-    # `pending` rows are auto-cancelled here so the user can retry a
-    # dropped checkout without hitting a "already subscribed" wall.
+    # Look for any prior subscription attempt for this (user, program). BEFORE
+    # deciding whether to cancel or block, reconcile against Razorpay's
+    # authoritative status — the local DB may lag behind reality.
+    #
+    # This was the source of a nasty production bug: users saw a spurious
+    # "Payment Failed" on Checkout, our DB thought status='created', we
+    # cancelled the row via Razorpay on retry — but Razorpay had actually
+    # authenticated the mandate. The user then made a second payment,
+    # Razorpay found the mandate cancelled, and rejected the whole
+    # subscription with "Subscription was cancelled by Razorpay."
     now_iso = _iso()
-    stale_cursor = database.subscriptions.find({
+    prior_cursor = database.subscriptions.find({
         "user_membership_id": current["membership_id"],
         "program_id": program["id"],
-        "status": {"$in": ["created", "pending"]},
+        "status": {"$nin": ["cancelled", "expired", "halted", "completed"]},
         "deleted_at": None,
     })
-    async for stale in stale_cursor:
-        # Best-effort Razorpay-side cancel; ignore errors (the mandate was
-        # never authorised so a local status flip is enough).
-        try:
-            pay_svc.cancel_subscription(stale.get("subscription_id") or "", cancel_at_cycle_end=False)
-        except Exception:  # noqa: BLE001
-            pass
-        await database.subscriptions.update_one(
-            {"_id": stale["_id"]},
-            {"$set": {"status": "cancelled", "cancelled_at": now_iso, "updated_at": now_iso,
-                      "cancel_reason": "abandoned_retry"}},
-        )
+    async for prior in prior_cursor:
+        sid_local = prior.get("subscription_id")
+        live_status = prior.get("status")
+        # Ask Razorpay for the real status. Skip lookup for mock sub_ids.
+        if sid_local and not sid_local.startswith("mock_sub_"):
+            try:
+                live = pay_svc.fetch_subscription(sid_local)
+                live_status = live.get("status") or live_status
+                # Sync local status so program_status + wallet flows are honest.
+                if live_status != prior.get("status"):
+                    await database.subscriptions.update_one(
+                        {"_id": prior["_id"]},
+                        {"$set": {"status": live_status, "updated_at": now_iso}},
+                    )
+            except Exception:  # noqa: BLE001
+                # If we can't reach Razorpay, err on the side of NOT cancelling
+                # — cancelling a live mandate is far worse than blocking a retry.
+                live_status = live_status or "unknown"
 
-    dup = await database.subscriptions.find_one({
-        "user_membership_id": current["membership_id"],
-        "program_id": program["id"],
-        "status": {"$in": ["authenticated", "active"]},
-        "deleted_at": None,
-    })
-    if dup:
-        raise HTTPException(409, "You already have an active subscription for this program.")
+        # Any state that means Razorpay considers the subscription valid
+        # → block the retry, do NOT cancel it.
+        if live_status in {"authenticated", "active", "pending", "unknown"}:
+            raise HTTPException(
+                409,
+                "You already have a subscription in progress for this program. "
+                "If your bank has debited you, it will unlock within a minute. "
+                "Please refresh — do not create a duplicate.",
+            )
+        # Truly abandoned (status='created' at Razorpay side too) → safe to
+        # cancel locally + on Razorpay so the retry can create a fresh sub.
+        if live_status == "created":
+            try:
+                pay_svc.cancel_subscription(sid_local or "", cancel_at_cycle_end=False)
+            except Exception:  # noqa: BLE001
+                pass
+            await database.subscriptions.update_one(
+                {"_id": prior["_id"]},
+                {"$set": {
+                    "status": "cancelled", "cancelled_at": now_iso,
+                    "updated_at": now_iso, "cancel_reason": "abandoned_retry_verified",
+                }},
+            )
 
     # Amount in paise (Razorpay Plans require the amount baked-in).
     price = float(program.get("price", 0) or 0)
@@ -329,6 +356,39 @@ async def my_subscriptions(
         r.pop("_id", None)
         out.append(r)
     return {"items": out, "total": len(out)}
+
+
+@router.post("/payments/subscription/reconcile-mine")
+async def reconcile_my_subscriptions(
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    """Sync every non-terminal subscription of the current user against
+    Razorpay's authoritative state. Useful when webhooks are delayed or
+    when the user got stuck after a Checkout race — they can hit this
+    endpoint (or the frontend can call it on program load) and the local
+    DB will catch up to reality without any risky cancels."""
+    updates: list[dict] = []
+    async for row in database.subscriptions.find({
+        "user_membership_id": current["membership_id"],
+        "status": {"$nin": ["cancelled", "expired", "halted", "completed"]},
+        "deleted_at": None,
+    }):
+        sid = row.get("subscription_id")
+        if not sid or sid.startswith("mock_sub_"):
+            continue
+        try:
+            live = pay_svc.fetch_subscription(sid)
+            new_status = live.get("status") or row.get("status")
+        except Exception:  # noqa: BLE001
+            continue
+        if new_status != row.get("status"):
+            patch = {"status": new_status, "updated_at": _iso()}
+            if new_status == "active" and not row.get("activated_at"):
+                patch["activated_at"] = _iso()
+            await database.subscriptions.update_one({"_id": row["_id"]}, {"$set": patch})
+            updates.append({"subscription_id": sid, "was": row.get("status"), "now": new_status})
+    return {"updated": len(updates), "changes": updates}
 
 
 # ============================================================================

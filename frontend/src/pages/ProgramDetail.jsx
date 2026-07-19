@@ -60,6 +60,24 @@ export default function ProgramDetail() {
       ]);
       setStatus(st);
       setModules(mods?.modules || mods?.items || []);
+      // If this is a subscription program with a non-terminal server-side
+      // state, reconcile against Razorpay in the background so the sticky
+      // bar reflects reality (handles webhook lag / Checkout race). Best-
+      // effort — we don't block the initial render on it.
+      const isSubProgram =
+        st?.program?.payment_type === "subscription" ||
+        st?.program?.is_subscription === true;
+      if (isSubProgram && !st?.has_access) {
+        paymentsApi
+          .reconcileMySubscriptions()
+          .then((res) => {
+            if (res?.updated > 0) {
+              // Fresh status — refetch program status silently.
+              programsApi.status(id).then(setStatus).catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
       // Per-program payment mode (falls back to global)
       try {
         const modeRes = await manualPaymentsApi.getMode({ program_id: id });
@@ -97,15 +115,22 @@ export default function ProgramDetail() {
 
   /**
    * Reconcile subscription status against Razorpay's authoritative API,
-   * with a short poll to absorb the async lag between Razorpay Checkout
-   * closing and their backend flipping the subscription to authenticated /
-   * active. Handles the well-known UPI mandate race where Checkout.js
-   * shows "payment failed" but the mandate + first charge actually go
-   * through on Razorpay's servers.
+   * with a longer poll (Razorpay UPI mandate authorisation can take
+   * 20–30s to flip from `created` → `authenticated` → `active`).
+   *
+   * We keep the messaging strictly honest:
+   *   - `active`         → real success, program unlocks
+   *   - `authenticated`  → mandate approved, first charge processing
+   *   - `pending`        → payment attempted, awaiting bank
+   *   - `created`        → nothing happened yet (user cancelled at Razorpay UI)
+   *   - `cancelled` / `halted` → only if RAZORPAY itself reports it
+   *
+   * We intentionally do NOT show a "cancelling payment" toast — that
+   * misled users into thinking a successful payment was being reversed.
    */
   const reconcileSubscription = async (subId) => {
-    // Poll up to 6 times with 2s spacing = 12s window.
-    for (let attempt = 0; attempt < 6; attempt++) {
+    // Poll up to 15 × 2s = 30s.
+    for (let attempt = 0; attempt < 15; attempt++) {
       try {
         const res = await paymentsApi.subscriptionVerify(subId);
         if (res.status === "active") {
@@ -115,22 +140,34 @@ export default function ProgramDetail() {
         }
         if (res.status === "authenticated") {
           if (attempt === 0) {
-            toast.success("Mandate approved. Charging your account…");
+            toast.success("Mandate approved. Charging your bank — this usually takes a few seconds.");
           }
-          // keep polling — a charge usually lands within a few seconds
+          // keep polling — charge lands within ~30s in most cases
         }
         if (res.status === "cancelled" || res.status === "halted") {
-          toast.error("Subscription was cancelled by Razorpay. Please try again.");
+          // ONLY show a cancel message if the sub is genuinely gone from
+          // Razorpay's side AND had no successful charge — otherwise stay
+          // silent and let load() surface the real state.
+          toast.error(
+            "Your subscription could not be set up. If your bank has debited you, the amount will be auto-refunded within 5–7 working days.",
+          );
           load();
           return res.status;
+        }
+        if (res.status === "created" && attempt >= 5) {
+          // 10s+ still in 'created' → user almost certainly abandoned
+          // the mandate on Razorpay's screen. No debit happened.
+          load();
+          return "created";
         }
       } catch (_) { /* transient, retry */ }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    // 12s of Razorpay silence — most often means their subscription.charged
-    // webhook is still en-route. Tell the user honestly and refresh the UI
-    // so if the webhook DID land, the sticky bar has flipped to Active.
-    toast.info("If your bank has debited you, your subscription will activate within a minute. Refreshing…");
+    // 30s elapsed and still `authenticated`/`pending` — mandate is real,
+    // charge is in flight. Tell the user honestly + refresh.
+    toast.info(
+      "Payment is being processed. Your program will unlock automatically once your bank confirms — usually within a minute.",
+    );
     load();
     return "unresolved";
   };
