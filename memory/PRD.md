@@ -691,3 +691,42 @@ codebase. This session rebuilt it end-to-end with production-grade safety.
 - Report: `/app/test_reports/iteration_28.json` — 8/8 backend pytests + full
   frontend Playwright flow (empty state → seed → active card → cancel dialog
   → past list transition) all green.
+
+## Delivered on 2026-07-19 (Multi-domain deploy + API subdomain fix)
+
+### Problem
+Razorpay dashboard webhook was configured to
+`https://api.riyorawellness.com/api/payments/razorpay/webhook` but the
+VPS TLS certificate only covered `app.riyorawellness.com`, so Razorpay's
+HTTPS client rejected the connection and 0/9 events were being delivered.
+
+### Fix (code)
+- **`deploy/nginx/default.conf`** — two `server_name` blocks now: the
+  primary app host (SPA + `/api` proxy) and a dedicated API host
+  (`api.<base>`) that serves only `/api` and 404s everything else. Both
+  reuse the same SAN certificate under
+  `/etc/letsencrypt/live/${DOMAIN}/`.
+- **`deploy/scripts/certbot-init.sh`** — issues a SAN cert with both `-d
+  $DOMAIN -d $API_DOMAIN` and passes `--expand` so this is idempotent
+  against an existing single-host cert.
+- **`deploy/scripts/deploy.sh`** — substitutes `api.riyorawellness.com`
+  → `$API_DOMAIN` alongside the existing `app.` substitution, and
+  detects a missing SAN on an existing cert to auto-run `certbot-init`
+  again with `--expand`.
+- **`deploy/.env.example`** — documents the new `API_DOMAIN` env var
+  (defaults to `api.<base>`) and widens `CORS_ORIGINS` to include both
+  hostnames.
+- **`AdminLiveCheck.jsx`** — the production webhook URL block now uses
+  `REACT_APP_BACKEND_URL` (the true API origin) instead of
+  `window.location.origin`, so admins copy the exact URL that Razorpay
+  should hit regardless of whether app.- and api. are the same host.
+
+### Runbook
+`/app/deploy/API_DOMAIN_FIX.md` — 5-min VPS remediation:
+1. Add `API_DOMAIN=api.riyorawellness.com` to `.env`
+2. Widen `CORS_ORIGINS`
+3. Run `./scripts/deploy.sh` (auto-expands the LE cert)
+4. Verify SAN with `openssl s_client`
+5. Curl the public webhook — expect 400 "Invalid webhook signature"
+6. Trigger a dashboard test event; Live Check → Webhook coverage should
+   turn that row green.

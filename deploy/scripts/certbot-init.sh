@@ -7,7 +7,7 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 
-echo "▶ Requesting Let's Encrypt cert for $DOMAIN"
+echo "▶ Requesting Let's Encrypt cert for $DOMAIN${API_DOMAIN:+ + $API_DOMAIN}"
 mkdir -p certbot/conf certbot/www nginx
 
 # ---- Defensive cleanup: previous runs may have left le-bootstrap.conf as an
@@ -50,6 +50,13 @@ docker run --rm -d --name le-bootstrap \
 sleep 3
 
 # ---- Ask certbot for the certificate.
+# If API_DOMAIN is set (recommended for Razorpay webhooks on api.<base>),
+# include it as an additional SAN so ONE certificate covers both hostnames.
+CERTBOT_DOMAIN_FLAGS=(-d "$DOMAIN")
+if [ -n "${API_DOMAIN:-}" ] && [ "${API_DOMAIN}" != "${DOMAIN}" ]; then
+  CERTBOT_DOMAIN_FLAGS+=(-d "$API_DOMAIN")
+fi
+
 docker run --rm \
   -v "$PWD/certbot/conf:/etc/letsencrypt" \
   -v "$PWD/certbot/www:/var/www/certbot" \
@@ -58,7 +65,8 @@ docker run --rm \
     --email "$LETSENCRYPT_EMAIL" \
     --agree-tos --no-eff-email \
     --non-interactive \
-    -d "$DOMAIN"
+    --expand \
+    "${CERTBOT_DOMAIN_FLAGS[@]}"
 
 # ---- Tear down the bootstrap; deploy.sh will bring up the real nginx next.
 docker stop le-bootstrap 2>/dev/null || true
@@ -68,4 +76,4 @@ if [ "${NGINX_WAS_UP:-0}" = "1" ]; then
   docker start riyora-nginx >/dev/null 2>&1 || true
 fi
 
-echo "✔ Certificate issued for $DOMAIN"
+echo "✔ Certificate issued for $DOMAIN${API_DOMAIN:+ + $API_DOMAIN}"

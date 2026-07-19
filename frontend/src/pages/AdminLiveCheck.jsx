@@ -276,16 +276,12 @@ export default function AdminLiveCheck() {
               <div className="mb-2 font-semibold">Configure in Razorpay dashboard → Settings → Webhooks:</div>
               <div className="flex items-center justify-between gap-2 rounded bg-white p-2 font-mono text-[11px] break-all">
                 <span data-testid="prod-webhook-url">
-                  {typeof window !== "undefined"
-                    ? `${window.location.origin}/api/payments/razorpay/webhook`
-                    : "/api/payments/razorpay/webhook"}
+                  {`${(process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "")}/api/payments/razorpay/webhook`}
                 </span>
                 <button
                   onClick={() =>
                     copy(
-                      typeof window !== "undefined"
-                        ? `${window.location.origin}/api/payments/razorpay/webhook`
-                        : "/api/payments/razorpay/webhook",
+                      `${(process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "")}/api/payments/razorpay/webhook`,
                     )
                   }
                   className="text-primary"

@@ -112,13 +112,33 @@ else
 fi
 
 step "3. Injecting DOMAIN into nginx config"
-# Substitute app.riyorawellness.com with the real domain from .env.
+# Substitute app.riyorawellness.com → $DOMAIN and api.riyorawellness.com → $API_DOMAIN.
 sed -i "s|app\.riyorawellness\.com|${DOMAIN}|g" nginx/default.conf
-ok "nginx/default.conf → ${DOMAIN}"
+if [ -n "${API_DOMAIN:-}" ] && [ "${API_DOMAIN}" != "${DOMAIN}" ]; then
+  sed -i "s|api\.riyorawellness\.com|${API_DOMAIN}|g" nginx/default.conf
+  ok "nginx/default.conf → ${DOMAIN} + ${API_DOMAIN}"
+else
+  # No dedicated API domain — drop the API-only server block by pointing it
+  # at the same host. Safe: `server_name` collision would fail-fast at
+  # nginx startup so we'd catch a mis-config immediately.
+  sed -i "s|api\.riyorawellness\.com|${DOMAIN}|g" nginx/default.conf
+  ok "nginx/default.conf → ${DOMAIN} (no API_DOMAIN configured — single-host)"
+fi
 
 step "4. Bootstrap TLS certificate (first-time only)"
 if [ ! -d certbot/conf/live/"${DOMAIN}" ]; then
   ./scripts/certbot-init.sh
+elif [ -n "${API_DOMAIN:-}" ] && [ "${API_DOMAIN}" != "${DOMAIN}" ]; then
+  # Cert exists but check whether it already includes the API_DOMAIN as SAN.
+  if docker run --rm \
+      -v "$PWD/certbot/conf:/etc/letsencrypt" \
+      certbot/certbot:latest \
+      certificates 2>/dev/null | grep -q "$API_DOMAIN"; then
+    ok "certificate already covers ${DOMAIN} + ${API_DOMAIN}"
+  else
+    warn "Certificate is missing ${API_DOMAIN} — extending it now"
+    ./scripts/certbot-init.sh
+  fi
 else
   ok "certificate for ${DOMAIN} already exists"
 fi
