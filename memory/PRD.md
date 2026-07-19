@@ -657,3 +657,37 @@ codebase. This session rebuilt it end-to-end with production-grade safety.
   `source='razorpay_subscription'`, `is_subscription=true`, and
   `subscription_cycle=N`. Every successful `subscription.charged` extends
   access for one cycle length and fires 3-level commissions.
+
+## Delivered on 2026-07-19 (Webhook Coverage Checklist + My Subscriptions page)
+
+### Admin — Live Check enhancements
+- `GET /api/admin/qa/live-check/webhook-coverage?lookback_days=30` (new) —
+  returns a 9-event checklist covering the required Razorpay events
+  (`payment.captured`, `order.paid`, `payment.failed`, `subscription.authenticated`,
+  `subscription.charged`, `subscription.completed`, `subscription.cancelled`,
+  `subscription.halted`, `subscription.pending`). Each row carries `seen`,
+  `last_seen_at`, and `category` (one_time | subscription).
+- `AdminLiveCheck.jsx` — new **Webhook coverage** card showing:
+  - Full production webhook URL (`${window.location.origin}/api/payments/razorpay/webhook`)
+    with copy button.
+  - Two-column checklist (one-time vs subscription) with green ✓ / grey ✗ per event.
+  - Verdict pill `N/9 events seen`.
+- Ships to production so admins can eyeball whether the Razorpay dashboard
+  webhook subscription is actually delivering.
+
+### User — My Subscriptions page
+- New route `/app/subscriptions` (`MySubscriptions.jsx`) listing every Razorpay
+  AutoPay mandate for the current user, split into **Active** and **Past**
+  sections. Per-card details: program name, status chip
+  (Active/Awaiting UPI/Payment failed/Cancelled/…), frequency, per-cycle amount,
+  cycles charged (paid_count / total_count), next charge date (`current_end`).
+- Cancel button per active card opens a confirmation dialog explaining
+  cycle-end vs immediate cancel; POSTs `/payments/subscription/{sid}/cancel`
+  and reloads.
+- Profile menu → 'Your journey' now includes "My subscriptions"
+  (`data-testid=profile-nav-subscriptions`).
+
+### Tests
+- Report: `/app/test_reports/iteration_28.json` — 8/8 backend pytests + full
+  frontend Playwright flow (empty state → seed → active card → cancel dialog
+  → past list transition) all green.
