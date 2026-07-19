@@ -782,3 +782,67 @@ per cycle.
 - `/app/test_reports/iteration_29.json` — **14/14 backend pytests +
   full frontend Playwright regression green.** All 4 subscription
   endpoints return 404; free + one-time flows unchanged.
+
+## 2026-07-19 — Razorpay AutoPay REBUILT with 4 frequencies (v2)
+
+User confirmed Razorpay is working (one-time payment succeeded) and re-requested
+the full subscription/UPI-mandate flow with **all 4 frequencies picked by
+admin at program creation time**. Rebuilt from scratch with better error
+handling.
+
+### Frequencies supported (admin picks per program)
+- **Monthly**   — 30 days per cycle · 60 cycles cap (5 yrs)
+- **Quarterly** — 90 days per cycle · 40 cycles cap (10 yrs)  *(NEW)*
+- **Half-Yearly** — 180 days per cycle · 20 cycles cap (10 yrs)
+- **Yearly**    — 365 days per cycle · 10 cycles cap (10 yrs)
+
+### Backend
+- `services/payment.py` — added `create_plan`, `create_subscription`,
+  `fetch_subscription`, `cancel_subscription` (all mock-mode aware).
+  `FREQUENCY_TO_DAYS / _PLAN / _TOTAL_COUNT` now include `quarterly` mapped
+  as `period=monthly, interval=3`.
+- `routes/enrolments.py` — restored `POST /payments/subscription/init`,
+  `POST /payments/subscription/{sid}/verify`,
+  `POST /payments/subscription/{sid}/cancel`,
+  `GET  /payments/subscription/me`. Race-safe reuse-on-retry preserved.
+- `routes/enrolments.py::_friendly_razorpay_error` — new helper that
+  translates the common "Subscriptions is not enabled" API error into a
+  clear user message telling admins to email `sub-support@razorpay.com`
+  so we never leave them guessing again.
+- `routes/payments.py` — restored `_handle_subscription_webhook` for
+  `subscription.charged` (idempotent per razorpay_payment_id) +
+  `.authenticated / .halted / .cancelled / .completed / .pending`.
+- `models/phase2.py` — `subscription_frequency` Literal extended to
+  `["monthly", "quarterly", "half_yearly", "yearly"]`.
+- `routes/qa.py` — `REQUIRED_RAZORPAY_EVENTS` back to 9 events.
+
+### Frontend
+- `components/SubscriptionCheckoutModal.jsx` — dedicated Razorpay-mandate
+  checkout (opens with `subscription_id`, polls 8×2s to reconcile).
+- `pages/MySubscriptions.jsx` — user-facing list with 4 frequency labels
+  and cancel dialog.
+- `pages/AdminPrograms.jsx` — Subscription payment type restored;
+  frequency dropdown now has all 4 options with day counts.
+- `pages/ProgramDetail.jsx` — Subscribe button branch restored.
+- `App.js` + `Profile.jsx` — `/app/subscriptions` route + nav item back.
+- `pages/AdminLiveCheck.jsx` — coverage checklist 2-column (one-time +
+  subscriptions).
+- `services/payments.js` — subscription helpers restored.
+
+### Tests
+- Report: `/app/test_reports/iteration_30.json` — **20/20 backend
+  pytests + frontend Playwright flow green.** Coverage: 4-frequency
+  program creation, init/verify/cancel per frequency, cycle math (30/90/
+  180/365 days), total_count caps (60/40/20/10), race-safe reuse,
+  idempotent webhook, invalid-frequency rejection.
+
+### VPS deploy
+```bash
+cd /opt/riyora/deploy
+git pull
+docker compose up -d --force-recreate backend frontend
+```
+Also (once) go to Razorpay Dashboard → Settings → Webhooks and make sure
+these subscription events are subscribed alongside the one-time events:
+subscription.authenticated, subscription.charged, subscription.completed,
+subscription.cancelled, subscription.halted, subscription.pending.
