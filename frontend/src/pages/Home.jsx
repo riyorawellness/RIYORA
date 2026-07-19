@@ -39,7 +39,6 @@ export default function Home() {
   const [logging, setLogging] = useState(false);
   const [pending, setPending] = useState([]);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
-  const [subscriptionProgram, setSubscriptionProgram] = useState(null);
   const [featured, setFeatured] = useState(null);
   const [continueCard, setContinueCard] = useState(null);
 
@@ -72,16 +71,12 @@ export default function Home() {
 
   const loadPrograms = async () => {
     try {
-      const [sub, others, cont] = await Promise.all([
+      const [others, cont] = await Promise.all([
         programsApi
-          .list({ is_subscription: true, is_featured: true, is_active: true, page: 1, page_size: 1, sort: "order_index" })
-          .catch(() => ({ items: [] })),
-        programsApi
-          .list({ is_subscription: false, is_featured: true, is_active: true, page: 1, page_size: 6, sort: "order_index,level" })
+          .list({ is_featured: true, is_active: true, page: 1, page_size: 6, sort: "order_index,level" })
           .catch(() => ({ items: [] })),
         programsApi.continueLearning().catch(() => null),
       ]);
-      setSubscriptionProgram(sub?.items?.[0] || null);
       setFeatured((others?.items || [])[0] || null);
       setContinueCard(cont || null);
     } catch (e) {
@@ -286,9 +281,9 @@ export default function Home() {
         )}
       </section>
 
-      {/* Continue-learning / featured subscription card */}
+      {/* Continue-learning / featured card */}
       {(() => {
-        const cardProgram = continueCard?.program || subscriptionProgram;
+        const cardProgram = continueCard?.program || featured;
         if (!cardProgram) return null;
         const thumb =
           cardProgram.thumbnail_url ||
@@ -297,9 +292,7 @@ export default function Home() {
         const progressPct = Math.round(continueCard?.progress?.percentage || 0);
         const currentModule = continueCard?.current_module;
         const hasContinue = !!continueCard;
-        const chipLabel = cardProgram.is_subscription
-          ? "Subscription"
-          : cardProgram.level != null
+        const chipLabel = cardProgram.level != null
           ? `Level ${cardProgram.level}`
           : "Program";
         return (

@@ -28,9 +28,6 @@ export default function ProgramCard({ program }) {
           ) : (
             <span className="rw-chip rw-chip-sky">Available</span>
           )}
-          {program.is_subscription && (
-            <span className="rw-chip rw-chip-sky">Subscription</span>
-          )}
         </div>
       </div>
 

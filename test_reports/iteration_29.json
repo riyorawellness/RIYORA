@@ -1,0 +1,58 @@
+{
+  "summary": "iter29: Verified Razorpay Subscription/AutoPay full removal — backend and frontend. All 14 backend pytests pass and every frontend surface (route, profile nav, admin UI, live-check, program detail) confirms no subscribe path remains. Free enrol + one-time Razorpay flow regressions still green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/programs/admin", "issue": "Silently accepts payment_type='subscription' and persists is_subscription=true (returns 201). Per spec this is acceptable-for-legacy behaviour, but note that Pydantic Literal narrowing to ['free','one_time'] would be safer to prevent admin API callers from ever recreating a subscription-type program."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter29_subscription_removal.py",
+    "/app/test_reports/pytest/iter29.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Narrow ProgramCreate.payment_type Pydantic field to Literal['free','one_time'] so /api/programs/admin returns 422 when clients (not the UI) attempt to POST payment_type='subscription'. Current behaviour silently accepts + stores is_subscription=true — legacy-safe but permissive."
+  ],
+  "critical_code_review_comments": [
+    "backend/app/routes/enrolments.py: cleanly reduced to free-only enrolment. Good docstring documents the 2026-07-19 removal.",
+    "backend/app/routes/qa.py: REQUIRED_RAZORPAY_EVENTS correctly trimmed to 3. `lookback_days = max(1, min(int(lookback_days or 30), 365))` still has the same lookback_days=0 → 30 quirk from iter28 (not a blocker).",
+    "frontend/src/pages/ProgramDetail.jsx: subscription→one_time coercion at line 117 is clean; legacy programs render the standard checkout modal. Button testid used is `program-purchase-btn` (from TID constant) — the review request asked for `program-subscribe-btn` but that testid is intentionally not present since the subscribe UI was fully removed; standard purchase button covers the intent. No change needed.",
+    "frontend/src/pages/AdminPrograms.jsx: payment_type picker cleanly limited to Free + One-Time; legacy programs auto-collapse to one_time on edit (line 126); subscription_frequency stripped before submit (line 157).",
+    "frontend/src/pages/AdminLiveCheck.jsx: coverage card shows single One-Time column with 3 events (payment.captured / order.paid / payment.failed) and correctly surfaces legacy subscription.* activity_log rows under 'Other events observed' — not in the required checklist.",
+    "SubscriptionCheckoutModal.jsx and MySubscriptions.jsx are confirmed DELETED from the source tree.",
+    "/app/subscriptions route is fully unregistered — visiting it while unauthenticated falls back to the landing screen. That is the router's default catch-all behaviour (no 404 page). Acceptable per the spec."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter29_subscription_removal.py (new)",
+    "/app/backend/.env (RAZORPAY_MOCK_MODE flipped true→false during regression, restored to false)"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (8/8 surfaces verified)"},
+  "test_credentials": "Admin 9999999999/Admin@12345; dummy user qa-tester@example.com/tester123 (legacy email fallback login)",
+  "seed_data_creation": "Test programs were created under TEST_iter29_* prefix and all soft-deleted after tests. No lingering test data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Razorpay Subscription/AutoPay is fully removed from RIYORA Wellness as of iter29. Backend has 4 dead subscription endpoints (all 404), webhook coverage returns 3 one-time events only, and frontend has no subscribe UI/route/nav/admin option anywhere. Backend .env RAZORPAY_MOCK_MODE=false (restored). Note: DB collection `subscriptions` still contains legacy rows from iter27/iter28 (~5 rows for dummy user) — intentionally left alone. Admin API still silently accepts payment_type='subscription' for legacy — treated by the UI as one_time. If you need to seed a subscription-legacy program for regression, POST to /api/programs/admin with payment_type='subscription' and it will 201.",
+  "verified_flows": [
+    "POST /api/payments/subscription/init → 404",
+    "GET /api/payments/subscription/me → 404",
+    "POST /api/payments/subscription/{id}/verify → 404",
+    "POST /api/payments/subscription/{id}/cancel → 404",
+    "POST /api/programs/{id}/enrol-free → 201 (free program, authed) / 400 (non-free) / 401 (unauth)",
+    "One-time flow (mock mode): /api/payments/order returns mock_ord_* order_id; /api/payments/verify with mock_sig_<order_id> returns purchase_id + invoice_number and persists purchase",
+    "GET /api/admin/qa/live-check/webhook-coverage returns exactly 3 required_events (payment.captured, order.paid, payment.failed), all category=one_time. 401/403 for non-admin.",
+    "POST /api/programs/admin with payment_type='free'/'one_time' → 201; payment_type='subscription' → 201 (silently accepted, is_subscription=true)",
+    "Frontend /app/subscriptions route not registered — falls back to landing/catch-all",
+    "Profile page: data-testid profile-nav-subscriptions is GONE; remaining nav items are purchases/commissions/payouts/reports/payment-history/privacy/terms/datasecurity/faq/contact",
+    "Home page featured program card renders (home-featured-program testid present)",
+    "Free program detail: program-free-enrol-btn button visible (Join for free)",
+    "One-time program detail: dummy user sees Mark as Paid (Tester) override (program-subscribe-btn absent)",
+    "Legacy subscription-type program detail: renders as one-time (Mark as Paid Tester UI, no monthly/subscribe language, no program-subscribe-btn)",
+    "Admin program builder: only admin-program-payment-type-free and admin-program-payment-type-one_time visible; admin-program-payment-type-subscription NOT rendered",
+    "Admin live-check page: 3 coverage-event-* testids, subscription.* events shown only under 'Other events observed' (from legacy activity_log rows), not in required checklist"
+  ]
+}

@@ -648,92 +648,6 @@ async def reconcile_order(
 # ---------------- webhook -------------------------------------------------
 
 
-async def _handle_subscription_webhook(
-    database: AsyncIOMotorDatabase, event: str, payload: dict
-) -> None:
-    """Handle subscription.* webhook events from Razorpay.
-
-    Events (2026-02):
-      - subscription.authenticated → mandate approved. Nothing to do here;
-        we wait for subscription.charged before granting access.
-      - subscription.charged → a cycle has been successfully charged.
-        Materialise a program_purchases row (idempotent) that extends access
-        for one cycle length.
-      - subscription.halted → payments have failed enough times that
-        Razorpay stopped retrying. Mark local status; access will lapse
-        naturally when the current purchase expires.
-      - subscription.cancelled → mandate cancelled (by user or by us).
-      - subscription.completed → all `total_count` cycles have been charged.
-      - subscription.pending → renewal charge failed once; will retry.
-    """
-    from app.routes.enrolments import _materialise_subscription_purchase
-
-    body = (payload.get("payload") or {})
-    sub_entity = (body.get("subscription") or {}).get("entity") or {}
-    pay_entity = (body.get("payment") or {}).get("entity") or {}
-
-    subscription_id = sub_entity.get("id") or pay_entity.get("subscription_id")
-    if not subscription_id:
-        logger.warning("Subscription webhook %s missing subscription_id", event)
-        return
-
-    row = await database.subscriptions.find_one(
-        {"subscription_id": subscription_id, "deleted_at": None}
-    )
-    if not row:
-        logger.warning("Subscription %s not found locally (event=%s)", subscription_id, event)
-        return
-
-    now = _now_iso()
-
-    if event == "subscription.charged":
-        payment_id = pay_entity.get("id")
-        if not payment_id:
-            logger.warning("subscription.charged missing payment id for %s", subscription_id)
-            return
-        paid_count = sub_entity.get("paid_count", (row.get("paid_count") or 0) + 1)
-        try:
-            await _materialise_subscription_purchase(
-                database,
-                subscription_row=row,
-                razorpay_payment_id=payment_id,
-                cycle_index=paid_count,
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("materialise subscription purchase failed")
-        await database.subscriptions.update_one(
-            {"_id": row["_id"]},
-            {
-                "$set": {
-                    "status": sub_entity.get("status") or "active",
-                    "paid_count": paid_count,
-                    "current_start": sub_entity.get("current_start"),
-                    "current_end": sub_entity.get("current_end"),
-                    "last_charged_at": now,
-                    "updated_at": now,
-                }
-            },
-        )
-        return
-
-    # Everything else — just mirror the status field.
-    new_status = sub_entity.get("status") or {
-        "subscription.authenticated": "authenticated",
-        "subscription.halted": "halted",
-        "subscription.cancelled": "cancelled",
-        "subscription.completed": "completed",
-        "subscription.pending": "pending",
-        "subscription.updated": row.get("status"),
-        "subscription.paused": "paused",
-        "subscription.resumed": "active",
-    }.get(event, row.get("status"))
-
-    await database.subscriptions.update_one(
-        {"_id": row["_id"]},
-        {"$set": {"status": new_status, "updated_at": now}},
-    )
-
-
 @router.post("/webhook", response_model=WebhookAck)
 async def razorpay_webhook(request: Request):
     raw = await request.body()
@@ -772,22 +686,13 @@ async def razorpay_webhook(request: Request):
         # Failed" and never triggered /verify, this webhook is the only
         # authoritative path to grant program access. Idempotent via
         # _complete_purchase_from_paid_order().
-        #
-        # Subscription events (subscription.authenticated / .charged /
-        # .halted / .cancelled / .completed) are handled below.
         try:
             if event in ("payment.captured", "order.paid"):
                 pay_entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
                 order_entity = ((payload.get("payload") or {}).get("order") or {}).get("entity") or {}
                 rp_order_id = pay_entity.get("order_id") or order_entity.get("id")
                 rp_payment_id = pay_entity.get("id")
-                # Ignore captured events that belong to a subscription — those
-                # are handled by subscription.charged below.
-                is_subscription_charge = bool(
-                    (pay_entity.get("invoice_id") or "").startswith("inv_")
-                    and pay_entity.get("recurring")
-                )
-                if rp_order_id and rp_payment_id and not is_subscription_charge:
+                if rp_order_id and rp_payment_id:
                     order_doc = await database.payment_orders.find_one(
                         {"order_id": rp_order_id, "deleted_at": None}
                     )
@@ -805,14 +710,6 @@ async def razorpay_webhook(request: Request):
         except Exception:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).exception("one-time webhook handler failed")
-
-        # ---- Subscription lifecycle webhooks (Razorpay AutoPay / UPI mandate)
-        try:
-            if event.startswith("subscription."):
-                await _handle_subscription_webhook(database, event, payload)
-        except Exception:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).exception("subscription webhook handler failed")
 
     return WebhookAck()
 
