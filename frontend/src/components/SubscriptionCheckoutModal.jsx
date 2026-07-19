@@ -91,7 +91,7 @@ export default function SubscriptionCheckoutModal({
     }
     setStatus("ready");
     setError(
-      "If you approved the mandate on your UPI app, your access will unlock within a minute. Otherwise, tap Subscribe again.",
+      "The mandate could not be confirmed. Common reasons: you cancelled the UPI approval, your bank declined the mandate, or the app timed out. Please tap Subscribe again and use a different UPI ID if the issue continues.",
     );
   };
 

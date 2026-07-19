@@ -8,11 +8,13 @@ import {
   Loader2,
   Pause,
   Repeat,
+  RotateCw,
   XCircle,
 } from "lucide-react";
 
 import { paymentsApi } from "@/services/payments";
 import { formatApiError } from "@/lib/api";
+import SubscriptionCheckoutModal from "@/components/SubscriptionCheckoutModal";
 
 const STATUS_STYLES = {
   active:        { label: "Active",         color: "bg-emerald-100 text-emerald-700", icon: CheckCircle2 },
@@ -67,9 +69,10 @@ function inr(v) {
   })}`;
 }
 
-function SubscriptionCard({ sub, onCancel, cancelling }) {
+function SubscriptionCard({ sub, onCancel, onRetry, cancelling, retrying }) {
   const status = String(sub.status || "").toLowerCase();
   const isTerminal = TERMINAL.has(status);
+  const isHalted = status === "halted";
   const amount = sub.amount_rupees ?? (sub.breakdown && sub.breakdown.total) ?? 0;
   const paid = sub.paid_count ?? 0;
   const total = sub.total_count ?? "-";
@@ -119,7 +122,34 @@ function SubscriptionCard({ sub, onCancel, cancelling }) {
         </div>
       )}
 
-      {!isTerminal && (
+      {isHalted && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-[11px] text-red-800">
+          Auto-renewal stopped after multiple failed charges. Your current cycle
+          access continues until it naturally expires. Start a fresh mandate to
+          keep the subscription alive.
+        </div>
+      )}
+
+      {isHalted && onRetry && (
+        <button
+          onClick={() => onRetry(sub)}
+          disabled={retrying === sub.subscription_id}
+          className="mt-3 w-full rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+          data-testid={`subscription-retry-btn-${sub.subscription_id}`}
+        >
+          {retrying === sub.subscription_id ? (
+            <span className="inline-flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Starting new mandate…
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2">
+              <RotateCw className="h-3.5 w-3.5" /> Retry with new mandate
+            </span>
+          )}
+        </button>
+      )}
+
+      {!isTerminal && !isHalted && (
         <button
           onClick={() => onCancel(sub)}
           disabled={cancelling === sub.subscription_id}
@@ -203,7 +233,9 @@ export default function MySubscriptions() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState("");
+  const [retrying, setRetrying] = useState("");
   const [confirm, setConfirm] = useState({ open: false, sub: null });
+  const [retryModal, setRetryModal] = useState({ open: false, programId: null });
 
   const load = async () => {
     setLoading(true);
@@ -237,6 +269,20 @@ export default function MySubscriptions() {
     } finally {
       setCancelling("");
     }
+  };
+
+  // Retry after a halted subscription — opens the checkout modal with the
+  // original program_id. The old halted row is left as-is; the reuse logic
+  // in /subscription/init skips terminal-status rows and creates a fresh
+  // mandate on Razorpay.
+  const doRetry = (sub) => {
+    if (!sub.program_id) {
+      toast.error("Cannot retry — program reference missing.");
+      return;
+    }
+    setRetrying(sub.subscription_id);
+    setRetryModal({ open: true, programId: sub.program_id });
+    setTimeout(() => setRetrying(""), 500);
   };
 
   const active = items.filter((s) => !TERMINAL.has(String(s.status || "").toLowerCase()));
@@ -287,7 +333,14 @@ export default function MySubscriptions() {
               </h2>
               <div className="mt-3 space-y-3" data-testid="subscriptions-active-list">
                 {active.map((s) => (
-                  <SubscriptionCard key={s.id || s.subscription_id} sub={s} onCancel={openCancel} cancelling={cancelling} />
+                  <SubscriptionCard
+                    key={s.id || s.subscription_id}
+                    sub={s}
+                    onCancel={openCancel}
+                    onRetry={doRetry}
+                    cancelling={cancelling}
+                    retrying={retrying}
+                  />
                 ))}
               </div>
             </section>
@@ -299,7 +352,14 @@ export default function MySubscriptions() {
               </h2>
               <div className="mt-3 space-y-3" data-testid="subscriptions-past-list">
                 {past.map((s) => (
-                  <SubscriptionCard key={s.id || s.subscription_id} sub={s} onCancel={openCancel} cancelling={cancelling} />
+                  <SubscriptionCard
+                    key={s.id || s.subscription_id}
+                    sub={s}
+                    onCancel={openCancel}
+                    onRetry={doRetry}
+                    cancelling={cancelling}
+                    retrying={retrying}
+                  />
                 ))}
               </div>
             </section>
@@ -313,6 +373,17 @@ export default function MySubscriptions() {
         working={cancelling === confirm.sub?.subscription_id}
         onConfirm={doCancel}
         onClose={closeCancel}
+      />
+
+      <SubscriptionCheckoutModal
+        open={retryModal.open}
+        onOpenChange={(v) => setRetryModal({ open: v, programId: retryModal.programId })}
+        programId={retryModal.programId}
+        onSuccess={() => {
+          setRetryModal({ open: false, programId: null });
+          toast.success("New mandate started · welcome back!");
+          load();
+        }}
       />
     </div>
   );

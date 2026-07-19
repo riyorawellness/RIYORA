@@ -729,6 +729,25 @@ async def _handle_subscription_webhook(
         {"$set": {"status": new_status, "updated_at": now}},
     )
 
+    # ---- Notify user on failure-terminal events.
+    # subscription.pending → one renewal charge failed; Razorpay will retry.
+    # subscription.halted  → Razorpay gave up retrying; mandate is dead.
+    if event in ("subscription.pending", "subscription.halted"):
+        try:
+            from app.services.notify import (
+                subscription_renewal_pending,
+                subscription_halted as _notify_halted,
+            )
+            fn = _notify_halted if event == "subscription.halted" else subscription_renewal_pending
+            await fn(
+                database,
+                membership_id=row["user_membership_id"],
+                program_name=row.get("program_name") or "your subscription",
+                subscription_id=subscription_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("subscription-failure notify failed")
+
 
 @router.post("/webhook", response_model=WebhookAck)
 async def razorpay_webhook(request: Request):
@@ -762,23 +781,16 @@ async def razorpay_webhook(request: Request):
             }
         )
 
-        # ---- One-time payment auto-complete.
+        # ---- One-time payment auto-complete + failure.
         # `payment.captured` and `order.paid` fire when Razorpay has debited
-        # the user successfully. If Checkout.js showed a spurious "Payment
-        # Failed" and never triggered /verify, this webhook is the only
-        # authoritative path to grant program access. Idempotent via
-        # _complete_purchase_from_paid_order().
-        #
-        # Subscription events (subscription.authenticated / .charged /
-        # .halted / .cancelled / .completed) are handled below.
+        # the user successfully. `payment.failed` fires when the charge is
+        # declined. Both branches are idempotent.
         try:
             if event in ("payment.captured", "order.paid"):
                 pay_entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
                 order_entity = ((payload.get("payload") or {}).get("order") or {}).get("entity") or {}
                 rp_order_id = pay_entity.get("order_id") or order_entity.get("id")
                 rp_payment_id = pay_entity.get("id")
-                # Ignore captured events that belong to a subscription — those
-                # are handled by subscription.charged below.
                 is_subscription_charge = bool(
                     (pay_entity.get("invoice_id") or "").startswith("inv_")
                     and pay_entity.get("recurring")
@@ -798,6 +810,46 @@ async def razorpay_webhook(request: Request):
                         except Exception:  # noqa: BLE001
                             import logging
                             logging.getLogger(__name__).exception("payment.captured completion failed")
+
+            elif event == "payment.failed":
+                pay_entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
+                rp_order_id = pay_entity.get("order_id")
+                if rp_order_id:
+                    order_doc = await database.payment_orders.find_one(
+                        {"order_id": rp_order_id, "deleted_at": None}
+                    )
+                    # Only mark unpaid orders as failed — don't overwrite a
+                    # subsequent successful capture.
+                    if order_doc and order_doc.get("status") not in ("paid", "failed"):
+                        reason = pay_entity.get("error_description") or pay_entity.get("error_reason") or ""
+                        await database.payment_orders.update_one(
+                            {"_id": order_doc["_id"]},
+                            {
+                                "$set": {
+                                    "status": "failed",
+                                    "failure_reason": reason,
+                                    "updated_at": _now_iso(),
+                                }
+                            },
+                        )
+                        # Notify user in-app.
+                        try:
+                            from app.services.notify import payment_failed as _notify_failed
+                            program = await database.programs.find_one(
+                                {"id": order_doc.get("program_id"), "deleted_at": None}
+                            ) or {}
+                            await _notify_failed(
+                                database,
+                                membership_id=order_doc.get("user_membership_id"),
+                                program_name=program.get("name") or "your program",
+                                reason=(
+                                    reason
+                                    or "Bank declined the charge. Please try again with a different UPI ID or check your balance."
+                                ),
+                            )
+                        except Exception:  # noqa: BLE001
+                            import logging
+                            logging.getLogger(__name__).exception("payment.failed notify failed")
         except Exception:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).exception("one-time webhook handler failed")

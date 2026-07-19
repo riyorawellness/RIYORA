@@ -153,6 +153,50 @@ async def payment_failed(
     )
 
 
+async def subscription_renewal_pending(
+    db, *, membership_id: str, program_name: str, subscription_id: str
+):
+    """Called on `subscription.pending` — one renewal attempt failed. Razorpay
+    will auto-retry within 24-48h. Nudge the user to top up UPI or update
+    the mandate account."""
+    return await notify(
+        db,
+        membership_id=membership_id,
+        title="Renewal payment failed",
+        body=(
+            f"Your auto-renewal for {program_name} could not be charged. "
+            "Please top up your UPI account — we'll retry the debit within "
+            "24 hours."
+        ),
+        category="payment",
+        cta_link="/app/subscriptions",
+        meta={"subscription_id": subscription_id, "program_name": program_name},
+        dedup_key=f"sub_pending:{subscription_id}",
+    )
+
+
+async def subscription_halted(
+    db, *, membership_id: str, program_name: str, subscription_id: str
+):
+    """Called on `subscription.halted` — Razorpay has given up retrying. The
+    mandate is dead. User keeps current cycle access but must start a fresh
+    mandate to keep the subscription alive."""
+    return await notify(
+        db,
+        membership_id=membership_id,
+        title="Auto-renewal stopped",
+        body=(
+            f"Your {program_name} subscription has been halted after multiple "
+            "failed charge attempts. Access continues until the current cycle "
+            "ends. Tap here to start a fresh AutoPay mandate."
+        ),
+        category="payment",
+        cta_link="/app/subscriptions",
+        meta={"subscription_id": subscription_id, "program_name": program_name},
+        dedup_key=f"sub_halted:{subscription_id}",
+    )
+
+
 async def module_unlocked(
     db, *, membership_id: str, program_name: str, module_name: str, module_id: str
 ):

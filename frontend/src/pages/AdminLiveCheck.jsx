@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   RefreshCw, Loader2, CheckCircle2, XCircle, PlayCircle, Send,
   ShieldCheck, ShieldAlert, Webhook, MessageSquareText, CreditCard, Copy,
-  ListChecks, Repeat,
+  ListChecks, Repeat, AlertTriangle,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -71,6 +71,8 @@ export default function AdminLiveCheck() {
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [coverage, setCoverage] = useState(null);
   const [loadingCoverage, setLoadingCoverage] = useState(false);
+  const [failedSubs, setFailedSubs] = useState(null);
+  const [loadingFailedSubs, setLoadingFailedSubs] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -108,10 +110,23 @@ export default function AdminLiveCheck() {
     }
   };
 
+  const loadFailedSubs = async () => {
+    setLoadingFailedSubs(true);
+    try {
+      const r = await api.get("/admin/qa/failed-subscriptions?limit=50").then((x) => x.data);
+      setFailedSubs(r);
+    } catch (e) {
+      toast.error(formatApiError(e, "Failed to load failed subscriptions"));
+    } finally {
+      setLoadingFailedSubs(false);
+    }
+  };
+
   useEffect(() => {
     load();
     loadEvents();
     loadCoverage();
+    loadFailedSubs();
   }, []);
 
   const createTestOrder = async () => {
@@ -332,6 +347,71 @@ export default function AdminLiveCheck() {
               </div>
             ) : (
               <div className="mt-4 text-sm text-muted-foreground">Loading…</div>
+            )}
+          </Card>
+
+          {/* Failed subscriptions */}
+          <Card className="rw-card p-5 lg:col-span-2" data-testid="live-check-failed-subs-card">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+                <h2 className="rw-serif text-xl">Failed subscriptions</h2>
+                {failedSubs && (
+                  <Badge
+                    className={
+                      (failedSubs.items || []).length === 0
+                        ? "bg-green-100 text-green-700 hover:bg-green-100"
+                        : "bg-red-100 text-red-700 hover:bg-red-100"
+                    }
+                    data-testid="failed-subs-count"
+                  >
+                    {(failedSubs.items || []).length} halted/pending
+                  </Badge>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={loadFailedSubs}
+                disabled={loadingFailedSubs}
+                data-testid="failed-subs-refresh"
+              >
+                {loadingFailedSubs ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              </Button>
+            </div>
+
+            {failedSubs && (failedSubs.items || []).length === 0 && (
+              <p className="mt-3 text-sm text-muted-foreground" data-testid="failed-subs-empty">
+                All active subscriptions are healthy — no halted or pending mandates in the last 30 days.
+              </p>
+            )}
+
+            {failedSubs && (failedSubs.items || []).length > 0 && (
+              <div className="mt-3 space-y-2" data-testid="failed-subs-list">
+                {(failedSubs.items || []).map((s) => (
+                  <div
+                    key={s.subscription_id}
+                    className="flex items-center justify-between rounded border border-red-100 bg-red-50/60 p-2 text-xs"
+                    data-testid={`failed-sub-row-${s.subscription_id}`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold text-red-900">
+                        {s.program_name}
+                        <span className="ml-2 rounded bg-white px-1.5 py-0.5 text-[10px] font-mono text-red-700">
+                          {s.status}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {s.user?.full_name || s.user_membership_id} · {s.user?.email || s.user?.mobile || ""}
+                      </div>
+                    </div>
+                    <div className="text-right text-[10px] font-mono text-muted-foreground">
+                      <div>{s.frequency}</div>
+                      <div>{s.subscription_id.slice(0, 20)}…</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </Card>
 

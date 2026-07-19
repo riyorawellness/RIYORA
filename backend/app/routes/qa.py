@@ -164,6 +164,30 @@ async def live_check_razorpay_test_order(
     }
 
 
+@router.get("/failed-subscriptions")
+async def admin_failed_subscriptions(
+    limit: int = 50,
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """List subscriptions currently in a failure state (halted / pending) so
+    admins can proactively follow up with the user. Sorted newest-first."""
+    limit = max(1, min(int(limit or 50), 200))
+    items = []
+    async for r in database.subscriptions.find(
+        {"status": {"$in": ["halted", "pending"]}, "deleted_at": None}
+    ).sort("updated_at", -1).limit(limit):
+        r.pop("_id", None)
+        # Enrich with the user's name/email if available.
+        user = await database.users.find_one(
+            {"membership_id": r.get("user_membership_id"), "deleted_at": None},
+            {"full_name": 1, "email": 1, "mobile": 1, "_id": 0},
+        )
+        r["user"] = user or {}
+        items.append(r)
+    return {"items": items, "count": len(items)}
+
+
 @router.get("/live-check/webhook-events")
 async def live_check_webhook_events(
     limit: int = 25,

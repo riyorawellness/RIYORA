@@ -1,0 +1,43 @@
+{
+  "summary": "iter31: Full verification of Razorpay payment-failure handling on top of iter30 subscription rebuild. Backend: 8/8 pytest tests PASSED covering (1) subscription.pending webhook → status='pending' + ONE dedup notification (sub_pending:{sid}), (2) subscription.halted → status='halted' + ONE dedup notification (sub_halted:{sid}), (3) payment.failed on one-time order → payment_orders.status='failed' + failure_reason stored + 'Payment failed' notification, (4) payment.failed does NOT notify when order was already paid, (5) admin-only GET /admin/qa/failed-subscriptions returns halted+pending with user enrichment and rejects non-admin with 403, (6) regression subscription.charged still materialises purchase idempotently and does NOT fire failure notification, (7) regression /subscription/init after halted returns a FRESH subscription_id. Frontend user: /app/subscriptions correctly shows red banner + red 'Retry with new mandate' button on halted card, HIDES Cancel button, and clicking Retry opens the SubscriptionCheckoutModal for the same program_id. Frontend admin: /admin/qa/live-check shows the new 'Failed subscriptions' card with count badge '6 halted/pending', per-row program name + status chip + user name/email + subscription_id, refresh button reloads the list. All data-testids are present and correct.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_payment_failure.py",
+    "/app/test_reports/pytest/iter31.xml"
+  ],
+  "action_items": [
+    "None required — payment-failure handling is production-ready. RAZORPAY_MOCK_MODE has been restored to false in /app/backend/.env after tests."
+  ],
+  "critical_code_review_comments": [
+    "app/services/notify.py: subscription_renewal_pending() and subscription_halted() correctly use dedup_key='sub_pending:{sid}' / 'sub_halted:{sid}'. Both use category='payment' and cta_link='/app/subscriptions' as spec'd. notify() dedup check queries meta.dedup_key with deleted_at=None — correct.",
+    "app/routes/payments.py:_handle_subscription_webhook — failure notif branch is gated on event ∈ (pending, halted); mapping in new_status dict correctly translates event → status. Notify call is wrapped in try/except so a notification insert failure will not fail the webhook (best-effort pattern).",
+    "app/routes/payments.py: payment.failed branch correctly guards on order_doc.get('status') not in ('paid','failed') — prevents overwriting a successful capture AND prevents double-notify on webhook replay. failure_reason falls back to error_description → error_reason → ''.",
+    "app/routes/qa.py: GET /admin/qa/failed-subscriptions properly filters status ∈ {halted, pending}, sorts by updated_at desc, enriches with users(full_name, email, mobile) and drops _id. Admin-only via get_current_admin dependency (401/403 for non-admin).",
+    "frontend/src/pages/MySubscriptions.jsx: halted status is NOT in TERMINAL set so halted subs appear in Active list (correct — user still has current-cycle access). Card renders red banner + red Retry button; Cancel button is hidden via `!isTerminal && !isHalted` guard. Retry opens SubscriptionCheckoutModal with the sub's program_id; on success, list is reloaded.",
+    "frontend/src/components/SubscriptionCheckoutModal.jsx: pollVerify timeout copy updated to the new friendly message about UPI approval / bank decline / timeout — verified present on line 94.",
+    "frontend/src/pages/AdminLiveCheck.jsx: Failed subscriptions card sits between coverage checklist and recent events (visual ordering confirmed via screenshot). Row shows program name, status chip, user name/email, monthly frequency, sub id."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_payment_failure.py (new)",
+    "/app/backend/.env (RAZORPAY_MOCK_MODE flipped false→true for tests, RESTORED to false)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (both user + admin flows verified)"},
+  "test_credentials": "Admin 9999999999/Admin@12345; dummy qa-tester@example.com/tester123 (email fallback login).",
+  "seed_data_creation": "Created several TEST_iter31_* subscription programs and TEST_iter31ui_Halted_Program used by the UI test. Halted sub mock_sub_b271a1d7aa8b4efd left in qa-tester's active list for admin card verification. Multiple test_iter31_*@example.com dummy users. Cleanup available via admin danger zone.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Payment-failure handling is fully verified. Notifications use /api/notifications/me (NOT /api/notifications) and records use `user_membership_id` field. Backend .env RAZORPAY_MOCK_MODE=false (restored). To reproduce in mock mode: flip to true + restart backend + run pytest backend/tests/test_iter31_payment_failure.py. Halted subs are kept in the Active section (not Past) because the user retains current-cycle access — this is intentional per spec 3a. The retry flow creates a fresh Razorpay subscription_id (reuse logic skips terminal-status rows including halted).",
+  "verified_flows": [
+    "Backend: subscription.pending webhook (fired twice) → status='pending' + exactly ONE notification with dedup_key=sub_pending:{sid}, title='Renewal payment failed', category='payment', cta_link='/app/subscriptions'",
+    "Backend: subscription.halted webhook (fired twice) → status='halted' + exactly ONE notification with dedup_key=sub_halted:{sid}, title='Auto-renewal stopped', category='payment', cta_link='/app/subscriptions'",
+    "Backend: payment.failed webhook on unpaid order → payment_orders.status='failed', failure_reason stored, 'Payment failed' notification created",
+    "Backend: payment.failed webhook on already-paid order → no new failure notification created (guard works)",
+    "Backend: GET /admin/qa/failed-subscriptions with admin token → 200 with items containing user sub-object (full_name, email, mobile); non-admin → 401/403",
+    "Backend regression: subscription.charged creates purchase idempotently (2 webhook fires → 1 purchase row); no failure notification fired on success",
+    "Backend regression: /payments/subscription/init after halted mandate returns fresh subscription_id, reused=false",
+    "Frontend user: qa-tester logs in, /app/subscriptions renders halted card with 'Payment failed' status chip, red banner 'Auto-renewal stopped after multiple failed charges', red 'Retry with new mandate' button; Cancel button absent",
+    "Frontend user: clicking Retry opens SubscriptionCheckoutModal with the halted sub's program_id and mock-mode 'Subscribe · ₹199' button",
+    "Frontend admin: /admin/qa/live-check shows Failed subscriptions card (data-testid=live-check-failed-subs-card) between coverage checklist and recent events cards. Count badge '6 halted/pending', per-row program name + halted/pending chip + user name/email + monthly frequency + sub id. Refresh button reloads the list"
+  ]
+}
