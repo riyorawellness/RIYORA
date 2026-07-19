@@ -1,0 +1,45 @@
+{
+  "summary": "iter28: Verified new webhook coverage checklist (admin) + user-facing My Subscriptions page + regression on subscription list/cancel. All 8 backend pytests pass and full frontend flow verified end-to-end including seed → active card → cancel dialog → past list transition.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_webhook_coverage_and_subs.py",
+    "/app/test_reports/pytest/iter28.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "qa.py webhook-coverage: `int(lookback_days or 30)` means passing lookback_days=0 silently becomes 30 instead of clamping to 1. Non-blocking but slightly inconsistent with the min(1, ...) intent — consider `int(lookback_days) if lookback_days is not None else 30` followed by max(1, min(..., 365)).",
+    "MySubscriptions.jsx: `SubscriptionCard` uses `sub.subscription_id` for testids/keys. If any legacy row is missing that field (e.g. only `id`), the card testid becomes `subscription-card-undefined`. Recommend fallback `sub.subscription_id || sub.id`.",
+    "AdminLiveCheck.jsx: `coverage.checklist.every(...)` in the Badge className runs before checklist is populated only when `coverage` is truthy — safe today, but consider a defensive `(coverage.checklist || []).every(...)` if the response ever shrinks."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter28_webhook_coverage_and_subs.py",
+    "/app/backend/.env (temporarily flipped RAZORPAY_MOCK_MODE for seed then restored to false)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all data-testids + flows verified)"},
+  "test_credentials": "Admin 9999999999/Admin@12345; dummy user qa-tester@example.com/tester123",
+  "seed_data_creation": "Created 1 subscription-type program (TEST_iter28_sub) + 1 mock subscription for qa-tester (mock_sub_09efdffa54ab48e2). Program soft-deleted after tests. Subscription remains in dummy user's Past list (cancelled) alongside iter27 seeded rows.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter28 features are fully green. Backend `.env` restored to RAZORPAY_MOCK_MODE=false and backend restarted (live-check/status confirms razorpay.status=live). The dummy user now has 5 past cancelled subscriptions (iter27 + iter28 leftovers). If a subsequent iteration needs a clean list, POST /api/admin/users/dummy to create a fresh dummy. All 9 required Razorpay events wired into the coverage checklist (payment.captured/order.paid/payment.failed + subscription.authenticated/charged/completed/cancelled/halted/pending).",
+  "verified_flows": [
+    "Admin login → /admin/qa/live-check renders `live-check-coverage-card` with 2/9 verdict",
+    "`prod-webhook-url-block` shows full origin URL and copy button works",
+    "All 9 coverage-event-<event> rows visible in 3+6 two-column layout",
+    "GET /api/admin/qa/live-check/webhook-coverage returns exactly 9 checklist items with correct categories",
+    "Non-admin/unauth calls to webhook-coverage → 401/403",
+    "GET /api/payments/subscription/me returns {items,total} (401 unauth)",
+    "POST /api/payments/subscription/{sid}/cancel reachable (404 for unknown sid)",
+    "Profile page shows `profile-nav-subscriptions` linking to /app/subscriptions",
+    "MySubscriptions page renders with active + past lists",
+    "Active subscription shows cancel button; terminal ones do not",
+    "Cancel dialog opens with Keep/Cancel now buttons, dismiss works, confirm cancels and reloads list"
+  ]
+}

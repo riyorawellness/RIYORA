@@ -82,6 +82,7 @@ export default function Profile() {
       {/* sections */}
       <Section title="Your journey">
         <Item to="/app/programs" icon={BookOpen} title="Purchased programs" hint="View your enrolments" />
+        <Item to="/app/subscriptions" icon={Repeat} title="My subscriptions" hint="AutoPay mandates · cancel anytime" testid="profile-nav-subscriptions" />
         <Item to="/app/purchases" icon={Receipt} title="Transactions & invoices" hint="Payment history · GST invoices" testid="profile-nav-purchases" />
         <Item to="/app/commissions" icon={Wallet} title="Wallet · Referral income" hint="Earnings ledger · pending / approved / paid" testid="profile-nav-commissions" />
         <Item to="/app/payouts" icon={Landmark} title="Payouts" hint="Bank transfers · redemption history" testid="profile-nav-payouts" />

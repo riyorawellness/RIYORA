@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -191,6 +191,71 @@ async def live_check_webhook_events(
             "created_at": row.get("created_at"),
         })
     return {"events": events, "count": len(events)}
+
+
+# Events the Razorpay dashboard MUST be configured to send in order for both
+# one-time payments and subscription (AutoPay/UPI mandate) flows to work.
+REQUIRED_RAZORPAY_EVENTS = [
+    # One-time payments
+    "payment.captured",
+    "order.paid",
+    "payment.failed",
+    # Subscriptions
+    "subscription.authenticated",
+    "subscription.charged",
+    "subscription.completed",
+    "subscription.cancelled",
+    "subscription.halted",
+    "subscription.pending",
+]
+
+
+@router.get("/live-check/webhook-coverage")
+async def live_check_webhook_coverage(
+    lookback_days: int = 30,
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Report which required Razorpay events have been received recently.
+
+    Returns a checklist of `REQUIRED_RAZORPAY_EVENTS` with a `seen` flag and
+    `last_seen_at` timestamp per event. Admins use this to confirm the
+    Razorpay dashboard webhook subscription is fully configured.
+    """
+    lookback_days = max(1, min(int(lookback_days or 30), 365))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+
+    seen_map: dict[str, str] = {}
+    cursor = database.activity_log.find(
+        {
+            "action": {"$regex": r"^razorpay\.webhook\."},
+            "created_at": {"$gte": cutoff},
+        }
+    ).sort("created_at", -1)
+    async for row in cursor:
+        event_name = (row.get("action") or "").replace("razorpay.webhook.", "")
+        if event_name and event_name not in seen_map:
+            seen_map[event_name] = row.get("created_at")
+
+    checklist = []
+    for name in REQUIRED_RAZORPAY_EVENTS:
+        checklist.append({
+            "event": name,
+            "seen": name in seen_map,
+            "last_seen_at": seen_map.get(name),
+            "category": "subscription" if name.startswith("subscription.") else "one_time",
+        })
+
+    return {
+        "lookback_days": lookback_days,
+        "required_events": REQUIRED_RAZORPAY_EVENTS,
+        "checklist": checklist,
+        "extra_events_seen": sorted(set(seen_map.keys()) - set(REQUIRED_RAZORPAY_EVENTS)),
+        "webhook_paths": [
+            "/api/payments/webhook",
+            "/api/payments/razorpay/webhook",
+        ],
+    }
 
 
 # ------------------------- Referral Engine Audit ------------------------------

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   RefreshCw, Loader2, CheckCircle2, XCircle, PlayCircle, Send,
   ShieldCheck, ShieldAlert, Webhook, MessageSquareText, CreditCard, Copy,
+  ListChecks, Repeat,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -40,6 +41,27 @@ function Row({ label, value, ok = null, mono = false, testid }) {
   );
 }
 
+function CoverageRow({ c }) {
+  return (
+    <div
+      className="flex items-center justify-between rounded border px-2 py-1.5 text-xs"
+      data-testid={`coverage-event-${c.event}`}
+    >
+      <div className="flex items-center gap-2">
+        {c.seen ? (
+          <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+        ) : (
+          <XCircle className="h-3.5 w-3.5 text-neutral-400" />
+        )}
+        <span className="font-mono text-[11px]">{c.event}</span>
+      </div>
+      <div className="text-[10px] text-muted-foreground">
+        {c.last_seen_at ? new Date(c.last_seen_at).toLocaleDateString() : "not seen"}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminLiveCheck() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +69,8 @@ export default function AdminLiveCheck() {
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [coverage, setCoverage] = useState(null);
+  const [loadingCoverage, setLoadingCoverage] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -72,9 +96,22 @@ export default function AdminLiveCheck() {
     }
   };
 
+  const loadCoverage = async () => {
+    setLoadingCoverage(true);
+    try {
+      const r = await api.get("/admin/qa/live-check/webhook-coverage?lookback_days=30").then((x) => x.data);
+      setCoverage(r);
+    } catch (e) {
+      toast.error(formatApiError(e, "Failed to load webhook coverage"));
+    } finally {
+      setLoadingCoverage(false);
+    }
+  };
+
   useEffect(() => {
     load();
     loadEvents();
+    loadCoverage();
   }, []);
 
   const createTestOrder = async () => {
@@ -209,6 +246,97 @@ export default function AdminLiveCheck() {
             <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[11px] text-emerald-900">
               Users sign in via Google or email/password on the frontend. The Firebase ID token is verified server-side before RIYORA mints its own JWT. No SMS OTP dependency.
             </div>
+          </Card>
+
+          {/* Webhook coverage checklist */}
+          <Card className="rw-card p-5 lg:col-span-2" data-testid="live-check-coverage-card">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ListChecks className="h-5 w-5 text-primary" />
+                <h2 className="rw-serif text-xl">Webhook coverage · last 30 days</h2>
+                {coverage && (
+                  <Badge
+                    className={
+                      coverage.checklist.every((c) => c.seen)
+                        ? "bg-green-100 text-green-700 hover:bg-green-100"
+                        : "bg-amber-100 text-amber-700 hover:bg-amber-100"
+                    }
+                    data-testid="coverage-verdict"
+                  >
+                    {coverage.checklist.filter((c) => c.seen).length}/{coverage.checklist.length} events seen
+                  </Badge>
+                )}
+              </div>
+              <Button variant="ghost" size="sm" onClick={loadCoverage} disabled={loadingCoverage} data-testid="coverage-refresh">
+                {loadingCoverage ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              </Button>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900" data-testid="prod-webhook-url-block">
+              <div className="mb-2 font-semibold">Configure in Razorpay dashboard → Settings → Webhooks:</div>
+              <div className="flex items-center justify-between gap-2 rounded bg-white p-2 font-mono text-[11px] break-all">
+                <span data-testid="prod-webhook-url">
+                  {typeof window !== "undefined"
+                    ? `${window.location.origin}/api/payments/razorpay/webhook`
+                    : "/api/payments/razorpay/webhook"}
+                </span>
+                <button
+                  onClick={() =>
+                    copy(
+                      typeof window !== "undefined"
+                        ? `${window.location.origin}/api/payments/razorpay/webhook`
+                        : "/api/payments/razorpay/webhook",
+                    )
+                  }
+                  className="text-primary"
+                  data-testid="copy-webhook-url"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+              </div>
+              <div className="mt-2 text-[11px]">
+                Active event alias: <span className="font-mono">/api/payments/webhook</span> also works.
+              </div>
+            </div>
+
+            {coverage ? (
+              <div className="mt-4 grid gap-4 md:grid-cols-2" data-testid="coverage-checklist">
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <CreditCard className="h-3.5 w-3.5" /> One-time payments
+                  </div>
+                  <div className="space-y-1">
+                    {coverage.checklist
+                      .filter((c) => c.category === "one_time")
+                      .map((c) => (
+                        <CoverageRow key={c.event} c={c} />
+                      ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Repeat className="h-3.5 w-3.5" /> Subscriptions · AutoPay
+                  </div>
+                  <div className="space-y-1">
+                    {coverage.checklist
+                      .filter((c) => c.category === "subscription")
+                      .map((c) => (
+                        <CoverageRow key={c.event} c={c} />
+                      ))}
+                  </div>
+                </div>
+                {coverage.extra_events_seen?.length > 0 && (
+                  <div className="md:col-span-2 mt-2 rounded-md bg-neutral-50 p-2 text-[11px]">
+                    <div className="font-semibold text-muted-foreground">Other events observed:</div>
+                    <div className="mt-1 font-mono text-[10px]">
+                      {coverage.extra_events_seen.join(" · ")}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4 text-sm text-muted-foreground">Loading…</div>
+            )}
           </Card>
 
           {/* Webhook events */}
