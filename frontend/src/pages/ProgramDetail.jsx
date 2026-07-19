@@ -95,6 +95,46 @@ export default function ProgramDetail() {
     }
   };
 
+  /**
+   * Reconcile subscription status against Razorpay's authoritative API,
+   * with a short poll to absorb the async lag between Razorpay Checkout
+   * closing and their backend flipping the subscription to authenticated /
+   * active. Handles the well-known UPI mandate race where Checkout.js
+   * shows "payment failed" but the mandate + first charge actually go
+   * through on Razorpay's servers.
+   */
+  const reconcileSubscription = async (subId) => {
+    // Poll up to 6 times with 2s spacing = 12s window.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        const res = await paymentsApi.subscriptionVerify(subId);
+        if (res.status === "active") {
+          toast.success("Payment received — your subscription is active.");
+          load();
+          return "active";
+        }
+        if (res.status === "authenticated") {
+          if (attempt === 0) {
+            toast.success("Mandate approved. Charging your account…");
+          }
+          // keep polling — a charge usually lands within a few seconds
+        }
+        if (res.status === "cancelled" || res.status === "halted") {
+          toast.error("Subscription was cancelled by Razorpay. Please try again.");
+          load();
+          return res.status;
+        }
+      } catch (_) { /* transient, retry */ }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    // 12s of Razorpay silence — most often means their subscription.charged
+    // webhook is still en-route. Tell the user honestly and refresh the UI
+    // so if the webhook DID land, the sticky bar has flipped to Active.
+    toast.info("If your bank has debited you, your subscription will activate within a minute. Refreshing…");
+    load();
+    return "unresolved";
+  };
+
   const handleSubscribeAutoPay = async () => {
     try {
       const RZP = await loadRazorpayScript();
@@ -107,28 +147,29 @@ export default function ProgramDetail() {
         load();
         return;
       }
+      // `checkoutClosed` prevents double-reconciliation when both `handler`
+      // and `ondismiss` fire (Razorpay sometimes fires both).
+      let checkoutClosed = false;
+      const reconcileOnce = () => {
+        if (checkoutClosed) return;
+        checkoutClosed = true;
+        reconcileSubscription(init.subscription_id);
+      };
       const rzp = new RZP({
         key: init.razorpay_key_id,
         subscription_id: init.subscription_id,
         name: "RIYORA Wellness",
         description: `${program.name} · Subscription`,
-        handler: async () => {
-          try {
-            const res = await paymentsApi.subscriptionVerify(init.subscription_id);
-            if (res.status === "active") {
-              toast.success("Payment received — your subscription is active.");
-            } else {
-              // authenticated but no charge yet — very short window for UPI /
-              // card auto-pay. Program stays locked until webhook flips it.
-              toast.success("Mandate approved. First charge processing — this usually takes a few seconds.");
-            }
-            load();
-          } catch (e) {
-            toast.error(formatApiError(e, "Could not verify subscription"));
-          }
-        },
+        // Turn off the built-in "retry" and payment-failure recovery flows
+        // — we own reconciliation ourselves via /verify. This eliminates the
+        // "Payment could not be completed" red modal that appears even when
+        // the mandate actually succeeded on Razorpay's backend.
+        retry: { enabled: false },
+        handler: () => reconcileOnce(),
         modal: {
-          ondismiss: () => toast.info("Subscription setup cancelled"),
+          // Fires on: user closes X, tap outside, AND on error-dismissal.
+          // Always reconcile — the mandate may have actually gone through.
+          ondismiss: () => reconcileOnce(),
         },
       });
       rzp.open();
