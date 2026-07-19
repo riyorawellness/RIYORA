@@ -114,8 +114,14 @@ export default function ProgramDetail() {
         description: `${program.name} · Subscription`,
         handler: async () => {
           try {
-            await paymentsApi.subscriptionVerify(init.subscription_id);
-            toast.success("Subscription authorised — auto-pay is on.");
+            const res = await paymentsApi.subscriptionVerify(init.subscription_id);
+            if (res.status === "active") {
+              toast.success("Payment received — your subscription is active.");
+            } else {
+              // authenticated but no charge yet — very short window for UPI /
+              // card auto-pay. Program stays locked until webhook flips it.
+              toast.success("Mandate approved. First charge processing — this usually takes a few seconds.");
+            }
             load();
           } catch (e) {
             toast.error(formatApiError(e, "Could not verify subscription"));

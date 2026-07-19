@@ -144,15 +144,37 @@ def create_or_reuse_plan(*, program_id: str, program_name: str,
     return plan["id"]
 
 
+# Razorpay-safe total_count per frequency. The `expire_at` UPI cap is 30
+# years, and Razorpay also caps total_count at ~100 for many combinations.
+# We stay well under BOTH by giving each plan a ~10-year lifetime, which
+# is plenty (a user can always re-subscribe after that).
+_TOTAL_COUNT_MAP = {
+    "monthly":     60,   # 5 years  (100-cap safe, 30yr-cap safe)
+    "half_yearly": 20,   # 10 years (60 max mathematically, we pick 20)
+    "yearly":      10,   # 10 years (30 max, we pick 10)
+}
+
+
+def _safe_total_count(frequency: str) -> int:
+    return _TOTAL_COUNT_MAP.get(frequency, 12)
+
+
 def create_subscription(*, plan_id: str, notes: dict[str, Any],
-                       total_count: int = 120) -> dict[str, Any]:
-    """Create a Razorpay Subscription against a plan. `total_count` is the
-    maximum number of successful charges before the subscription ends —
-    120 = 10 years for monthly, plenty of runway. User can cancel any time.
+                       total_count: int | None = None,
+                       frequency: str | None = None) -> dict[str, Any]:
+    """Create a Razorpay Subscription against a plan.
+
+    `total_count` is the maximum number of successful charges before the
+    subscription ends. Callers should pass EITHER `total_count` explicitly,
+    OR `frequency` so we pick a Razorpay-safe default (Razorpay rejects
+    total_count values that make expire_at exceed 30 years — hit by UPI —
+    or that exceed ~100 for the period/interval combination).
 
     Returns dict with `id`, `short_url`, `status`, `plan_id`. The
     frontend passes `id` to Checkout as `subscription_id` (NOT order_id).
     """
+    if total_count is None:
+        total_count = _safe_total_count(frequency or "monthly")
     client = _client()
     if client is None:
         return {

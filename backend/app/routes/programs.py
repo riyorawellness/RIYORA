@@ -143,14 +143,19 @@ async def program_status(
         )
         if enrolment:
             enrolment.pop("_id", None)
-    # Active subscription mandate → user has access even if the first
-    # subscription.charged webhook hasn't fired yet.
+    # Active subscription mandate → user has access only when Razorpay has
+    # actually charged at least once (status='active' or charges_count>0).
+    # `authenticated` alone (mandate approved but no charge yet) MUST NOT
+    # unlock the program — user must pay first.
     active_subscription = None
     if program.get("payment_type") == "subscription":
         active_subscription = await database.subscriptions.find_one({
             "user_membership_id": current["membership_id"],
             "program_id": program_id,
-            "status": {"$in": ["authenticated", "active"]},
+            "$or": [
+                {"status": "active"},
+                {"charges_count": {"$gt": 0}},
+            ],
             "deleted_at": None,
         })
         if active_subscription:

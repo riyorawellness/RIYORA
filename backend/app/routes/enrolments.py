@@ -125,11 +125,34 @@ async def subscription_init(
     if freq not in {"monthly", "half_yearly", "yearly"}:
         raise HTTPException(400, "Program missing a valid subscription_frequency.")
 
-    # Refuse if user already has an active subscription for this program.
+    # Refuse ONLY if user already has an actually-paid subscription (either
+    # authenticated with a first charge, or active). Stale `created` /
+    # `pending` rows are auto-cancelled here so the user can retry a
+    # dropped checkout without hitting a "already subscribed" wall.
+    now_iso = _iso()
+    stale_cursor = database.subscriptions.find({
+        "user_membership_id": current["membership_id"],
+        "program_id": program["id"],
+        "status": {"$in": ["created", "pending"]},
+        "deleted_at": None,
+    })
+    async for stale in stale_cursor:
+        # Best-effort Razorpay-side cancel; ignore errors (the mandate was
+        # never authorised so a local status flip is enough).
+        try:
+            pay_svc.cancel_subscription(stale.get("subscription_id") or "", cancel_at_cycle_end=False)
+        except Exception:  # noqa: BLE001
+            pass
+        await database.subscriptions.update_one(
+            {"_id": stale["_id"]},
+            {"$set": {"status": "cancelled", "cancelled_at": now_iso, "updated_at": now_iso,
+                      "cancel_reason": "abandoned_retry"}},
+        )
+
     dup = await database.subscriptions.find_one({
         "user_membership_id": current["membership_id"],
         "program_id": program["id"],
-        "status": {"$in": ["created", "authenticated", "active", "pending"]},
+        "status": {"$in": ["authenticated", "active"]},
         "deleted_at": None,
     })
     if dup:
@@ -165,10 +188,12 @@ async def subscription_init(
             {"$set": {f"_razorpay_plans.{cache_key}": plan_id}},
         )
 
-    # Create the Subscription.
+    # Create the Subscription (frequency-aware total_count so we don't
+    # trip Razorpay's 100-count and 30-year UPI expire_at caps).
     try:
         sub = pay_svc.create_subscription(
             plan_id=plan_id,
+            frequency=freq,
             notes={
                 "membership_id": current["membership_id"],
                 "program_id": program["id"],
@@ -244,7 +269,10 @@ async def subscription_verify(
     status = live.get("status", "created")
     now = _iso()
     updates = {"status": status, "updated_at": now}
-    if status in {"authenticated", "active"} and not doc.get("activated_at"):
+    # `active` means Razorpay has already collected at least one charge —
+    # this is the moment access is granted. `authenticated` (mandate set
+    # up but not yet charged) is deliberately NOT enough to unlock.
+    if status == "active" and not doc.get("activated_at"):
         updates["activated_at"] = now
     await database.subscriptions.update_one({"_id": doc["_id"]}, {"$set": updates})
     return {"subscription_id": sub_id, "status": status}
