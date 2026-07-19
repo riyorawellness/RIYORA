@@ -593,3 +593,67 @@ All 4 shell scripts pass `bash -n` syntax check. `docker-compose.yml` passes YAM
 
 
 
+
+## Delivered on 2026-07-19 (Razorpay AutoPay/UPI Mandate — rebuilt from scratch)
+
+The previous agent had accidentally deleted the entire Razorpay subscription
+codebase. This session rebuilt it end-to-end with production-grade safety.
+
+### Backend
+- **`services/payment.py`** — added `create_plan()`, `create_subscription()`,
+  `fetch_subscription()`, `cancel_subscription()` helpers. All support both
+  LIVE and MOCK modes.
+- **UPI-safe `total_count` caps** (avoid Razorpay's >30-year expire_at crash):
+  Monthly=60 cycles (5y), Half-Yearly=20 (10y), Yearly=10 (10y).
+  Half-Yearly implemented as period=monthly + interval=6.
+- **`routes/enrolments.py`** — three new endpoints:
+  - `POST /api/payments/subscription/init` — creates (or REUSES) plan +
+    subscription. Race-safe: if user has an existing row in status
+    ∈ {created, authenticated, active, pending}, returns it. `created` rows
+    older than 60 minutes are treated as stale. Fetches Razorpay live status
+    before reusing so a mandate cancelled server-side isn't recycled.
+  - `POST /api/payments/subscription/{sid}/verify` — post-checkout poll.
+    Fetches authoritative status from Razorpay; in mock mode auto-charges
+    the first cycle. Idempotent.
+  - `POST /api/payments/subscription/{sid}/cancel` — smart cancel:
+    `cancel_at_cycle_end=true` for active/authenticated mandates, immediate
+    for pending ones (Razorpay 400s cycle-end cancel on pending).
+  - `GET /api/payments/subscription/me` — list user subscriptions.
+- **`routes/payments.py`** — new `_handle_subscription_webhook()` handles
+  `subscription.charged` (materialises a `program_purchases` row idempotently
+  per `razorpay_payment_id`, fires commission engine, sends notification),
+  `subscription.authenticated`, `subscription.halted`, `subscription.cancelled`,
+  `subscription.completed`, `subscription.pending`, `subscription.paused`,
+  `subscription.resumed`. Plan caching per program via `_razorpay_plans` dict.
+
+### Frontend
+- **`components/SubscriptionCheckoutModal.jsx`** (new) — dedicated mandate
+  checkout separate from one-time `CheckoutModal`. Opens Razorpay with
+  `subscription_id` (not `order_id`). Post-checkout polls `/verify` 8×2s to
+  give the webhook time to fire. Handles both `handler` and `ondismiss`
+  paths (mandate may have been authenticated even if Checkout showed a
+  failure modal).
+- **`pages/ProgramDetail.jsx`** — subscription programs open the new modal;
+  one-time programs continue to use the existing `CheckoutModal`.
+- **`services/payments.js`** — added `subscriptionInit / subscriptionVerify /
+  subscriptionCancel / mySubscriptions` helpers.
+
+### Tests
+- `/app/backend/tests/test_iter27_subscription_rebuild.py` — **15/15 PASS**
+  (init/verify/cancel/reuse/webhook/idempotency/total_count/regression).
+- Frontend Playwright E2E green — subscribe button → new modal → mandate
+  active → program shows Active status.
+- Report: `/app/test_reports/iteration_27.json`.
+
+### Migration / behaviour
+- User frequencies supported: **Monthly + Yearly** (Half-Yearly retained for
+  admin flexibility but not user-messaged).
+- User closing checkout mid-mandate → local row stays in `created` state,
+  next Subscribe click **reuses the same subscription_id** rather than
+  creating a duplicate.
+- `subscriptions` collection preserved from prior schema; unique sparse
+  index on `subscription_id` unchanged.
+- `program_purchases` rows created by subscription flow carry
+  `source='razorpay_subscription'`, `is_subscription=true`, and
+  `subscription_cycle=N`. Every successful `subscription.charged` extends
+  access for one cycle length and fires 3-level commissions.

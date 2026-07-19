@@ -103,16 +103,7 @@ def verify_webhook_signature(payload_bytes: bytes, signature: str, secret: str) 
     return hmac.compare_digest(expected, signature)
 
 
-# ---------- Subscriptions ---------------------------------------------------
-# NOTE (2026-07-21): Razorpay AutoPay/mandate subscriptions have been REMOVED.
-# The UPI mandate flow was inherently unreliable in India — Checkout.js would
-# show spurious "Payment Failed" modals even when the mandate was authenticated
-# and money was debited, leading to double-charges and cancelled mandates when
-# users retried. Subscription programs now use the SAME one-time Razorpay
-# order flow as one-off purchases: the user pays for one cycle at a time,
-# the purchase carries an expiry_date, and when it lapses the user clicks
-# "Renew" to pay for another cycle. Simple, deterministic, no race conditions.
-
+# ---------- Subscriptions (Razorpay AutoPay / eMandate) --------------------
 # Days per subscription cycle — used by admin create/update to auto-set
 # program.validity_days when payment_type == "subscription".
 FREQUENCY_TO_DAYS = {
@@ -120,3 +111,131 @@ FREQUENCY_TO_DAYS = {
     "half_yearly": 180,
     "yearly":      365,
 }
+
+# Razorpay Plan `period` mapping. Razorpay only supports monthly / yearly
+# natively; half-yearly uses period=monthly + interval=6.
+FREQUENCY_TO_PLAN = {
+    "monthly":     {"period": "monthly", "interval": 1},
+    "half_yearly": {"period": "monthly", "interval": 6},
+    "yearly":      {"period": "yearly",  "interval": 1},
+}
+
+# UPI-safe `total_count` caps. Razorpay computes expire_at = now + (total_count
+# × cycle_length). UPI/NPCI mandates cannot exceed ~30 years, and in practice
+# many banks reject > 5-10 years. We keep the cap conservative — the mandate
+# auto-completes and the user can start a fresh one when it does.
+#   monthly     × 60 cycles = 5 years
+#   half_yearly × 20 cycles = 10 years
+#   yearly      × 10 cycles = 10 years
+FREQUENCY_TO_TOTAL_COUNT = {
+    "monthly":     60,
+    "half_yearly": 20,
+    "yearly":      10,
+}
+
+
+def create_plan(
+    amount_paise: int,
+    frequency: str,
+    program_name: str,
+    currency: str = "INR",
+) -> dict[str, Any]:
+    """Create (or return a mock) Razorpay Plan for the given amount+frequency.
+    Callers are expected to cache the resulting plan_id per (program, frequency,
+    amount) to avoid creating duplicate plans."""
+    if frequency not in FREQUENCY_TO_PLAN:
+        raise ValueError(f"Unsupported frequency: {frequency}")
+    spec = FREQUENCY_TO_PLAN[frequency]
+    payload = {
+        "period": spec["period"],
+        "interval": spec["interval"],
+        "item": {
+            "name": program_name[:200] or "RIYORA Subscription",
+            "amount": int(amount_paise),
+            "currency": currency,
+        },
+        "notes": {"frequency": frequency},
+    }
+    client = _client()
+    if client is None:
+        return {
+            "id": f"mock_plan_{uuid.uuid4().hex[:16]}",
+            "period": spec["period"],
+            "interval": spec["interval"],
+            "item": payload["item"],
+            "is_mock": True,
+        }
+    plan = client.plan.create(payload)
+    plan["is_mock"] = False
+    return plan
+
+
+def create_subscription(
+    plan_id: str,
+    frequency: str,
+    notes: dict[str, Any] | None = None,
+    customer_notify: int = 1,
+) -> dict[str, Any]:
+    """Create a Razorpay Subscription bound to `plan_id`.
+
+    `total_count` is clamped to a UPI-safe value so the mandate expire_at
+    stays well within NPCI's max horizon. Once the count is exhausted,
+    subscription.completed fires and the user can subscribe again.
+    """
+    total_count = FREQUENCY_TO_TOTAL_COUNT.get(frequency, 12)
+    payload: dict[str, Any] = {
+        "plan_id": plan_id,
+        "total_count": total_count,
+        "quantity": 1,
+        "customer_notify": customer_notify,
+        "notes": notes or {},
+    }
+    client = _client()
+    if client is None:
+        sid = f"mock_sub_{uuid.uuid4().hex[:16]}"
+        return {
+            "id": sid,
+            "plan_id": plan_id,
+            "status": "created",
+            "total_count": total_count,
+            "paid_count": 0,
+            "short_url": f"https://rzp.io/mock/{sid}",
+            "notes": payload["notes"],
+            "is_mock": True,
+        }
+    sub = client.subscription.create(payload)
+    sub["is_mock"] = False
+    return sub
+
+
+def fetch_subscription(subscription_id: str) -> dict[str, Any] | None:
+    """Fetch current subscription status from Razorpay."""
+    client = _client()
+    if client is None:
+        return None
+    try:
+        return client.subscription.fetch(subscription_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("fetch_subscription(%s) failed: %s", subscription_id, exc)
+        return None
+
+
+def cancel_subscription(
+    subscription_id: str, cancel_at_cycle_end: bool = True
+) -> dict[str, Any]:
+    """Cancel a Razorpay subscription.
+
+    Razorpay refuses `cancel_at_cycle_end=True` on subscriptions that are
+    still in `created`/`pending` (mandate never got authenticated). Callers
+    should pass the flag conditionally based on live status.
+    """
+    client = _client()
+    if client is None:
+        return {
+            "id": subscription_id,
+            "status": "cancelled",
+            "is_mock": True,
+        }
+    return client.subscription.cancel(
+        subscription_id, {"cancel_at_cycle_end": 1 if cancel_at_cycle_end else 0}
+    )

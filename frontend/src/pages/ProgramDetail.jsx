@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import CheckoutModal from "@/components/CheckoutModal";
+import SubscriptionCheckoutModal from "@/components/SubscriptionCheckoutModal";
 import { programsApi } from "@/services/programs";
 import { paymentsApi } from "@/services/payments";
 import { manualPaymentsApi } from "@/services/manualPayments";
@@ -48,6 +49,7 @@ export default function ProgramDetail() {
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [subOpen, setSubOpen] = useState(false);
   const [paymentMode, setPaymentMode] = useState("razorpay");
   const [pendingReq, setPendingReq] = useState(null);
 
@@ -321,7 +323,7 @@ export default function ProgramDetail() {
           ) : isSubscription ? (
             <button
               className="rw-btn-pill rw-btn-primary"
-              onClick={() => setCheckoutOpen(true)}
+              onClick={() => setSubOpen(true)}
               data-testid="program-subscribe-btn"
             >
               Subscribe · ₹{total.toLocaleString("en-IN")}
@@ -401,6 +403,17 @@ export default function ProgramDetail() {
         onSuccess={(res) => {
           setCheckoutOpen(false);
           toast.success(`Access unlocked · Invoice ${res.invoice_number}`);
+          load();
+        }}
+      />
+
+      <SubscriptionCheckoutModal
+        open={subOpen}
+        onOpenChange={setSubOpen}
+        programId={id}
+        onSuccess={() => {
+          setSubOpen(false);
+          toast.success("Subscription active — enjoy!");
           load();
         }}
       />

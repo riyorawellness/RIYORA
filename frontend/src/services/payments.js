@@ -33,10 +33,25 @@ export const paymentsApi = {
       .get(`/payments/invoice/${purchaseId}`, { responseType: "blob" })
       .then((r) => r.data),
 
-  // ---- Subscription helper (2026-07): frontend now uses the standard
-  // one-time checkout for subscription programs too. Every renewal is
-  // an explicit user-triggered payment for one cycle's amount. The
-  // dedicated AutoPay endpoints below have been removed as of this date.
+  // ---- Subscription (Razorpay AutoPay / UPI Mandate) ---------------------
+  subscriptionInit: (programId) =>
+    api
+      .post("/payments/subscription/init", { program_id: programId })
+      .then((r) => r.data),
+
+  subscriptionVerify: (subscriptionId) =>
+    api
+      .post(`/payments/subscription/${subscriptionId}/verify`)
+      .then((r) => r.data),
+
+  subscriptionCancel: (subscriptionId) =>
+    api
+      .post(`/payments/subscription/${subscriptionId}/cancel`)
+      .then((r) => r.data),
+
+  mySubscriptions: () =>
+    api.get("/payments/subscription/me").then((r) => r.data),
+
   enrolFree: (programId) =>
     api.post(`/programs/${programId}/enrol-free`).then((r) => r.data),
 
