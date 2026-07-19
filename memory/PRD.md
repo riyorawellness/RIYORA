@@ -730,3 +730,55 @@ HTTPS client rejected the connection and 0/9 events were being delivered.
 5. Curl the public webhook — expect 400 "Invalid webhook signature"
 6. Trigger a dashboard test event; Live Check → Webhook coverage should
    turn that row green.
+
+## 2026-07-19 — Subscription (Razorpay AutoPay) FULLY REMOVED
+
+Root cause: the live Razorpay merchant account did not have Subscriptions
+activated. Razorpay Checkout would open then close instantly on the phone
+without ever showing the UPI PIN prompt, because the merchant is not
+authorized to render the mandate flow. Rather than wait 1-2 business days
+for Razorpay support to enable Subscriptions, the user chose to drop the
+feature entirely and sell every recurring program as a one-time purchase
+per cycle.
+
+### Backend removals
+- `services/payment.py` — deleted `create_plan`, `create_subscription`,
+  `fetch_subscription`, `cancel_subscription`, `FREQUENCY_TO_PLAN`,
+  `FREQUENCY_TO_TOTAL_COUNT`. Kept `FREQUENCY_TO_DAYS` for admin validity
+  mapping.
+- `routes/enrolments.py` — now only `/programs/{id}/enrol-free` and
+  `/programs/me/enrolments`. All `/payments/subscription/*` endpoints
+  removed (return HTTP 404).
+- `routes/payments.py` — deleted `_handle_subscription_webhook` and its
+  call site. One-time `payment.captured` / `order.paid` webhook path is
+  untouched.
+- `routes/qa.py` — `REQUIRED_RAZORPAY_EVENTS` trimmed to
+  `payment.captured`, `order.paid`, `payment.failed` only.
+
+### Frontend removals
+- Deleted `components/SubscriptionCheckoutModal.jsx` and
+  `pages/MySubscriptions.jsx`.
+- `App.js` — removed `/app/subscriptions` route.
+- `pages/Profile.jsx` — removed "My subscriptions" nav item.
+- `pages/ProgramDetail.jsx` — legacy `payment_type='subscription'`
+  programs now silently behave as one-time purchases.
+- `pages/AdminPrograms.jsx` — "Subscription" removed from the payment
+  type picker; legacy edit auto-collapses to one_time; `subscription_frequency`
+  dropped from form + submit body.
+- `pages/AdminLiveCheck.jsx` — coverage checklist now single column
+  (3 events, one-time only).
+- `pages/Home.jsx` — removed the parallel subscription-programs fetch.
+- `components/ProgramCard.jsx` — removed the "Subscription" chip.
+- `services/payments.js` — removed `subscriptionInit / Verify / Cancel /
+  mySubscriptions` API helpers.
+
+### Data migration
+- Any programs with `payment_type='subscription'` are auto-shown as
+  one_time on both the user detail page and the admin edit page. No
+  destructive DB change required.
+- The `subscriptions` collection is preserved as-is (historical only).
+
+### Tests
+- `/app/test_reports/iteration_29.json` — **14/14 backend pytests +
+  full frontend Playwright regression green.** All 4 subscription
+  endpoints return 404; free + one-time flows unchanged.
