@@ -113,9 +113,10 @@ FREQUENCY_TO_DAYS = {
     "yearly":      365,
 }
 
-# Razorpay Plan `period` mapping. Razorpay natively supports monthly and
-# yearly periods. Quarterly and half-yearly are expressed as period=monthly
-# with a larger interval, per Razorpay's own docs.
+# Razorpay Plan `period` mapping is intentionally NOT used at runtime — plans
+# are pre-created by the admin on the Razorpay dashboard and their `plan_id`s
+# are stored in `app_settings` (`razorpay_plan_id_<frequency>`). We keep this
+# reference so it's clear what each frequency maps to on Razorpay's side.
 FREQUENCY_TO_PLAN = {
     "monthly":     {"period": "monthly", "interval": 1},
     "quarterly":   {"period": "monthly", "interval": 3},
@@ -138,44 +139,6 @@ FREQUENCY_TO_TOTAL_COUNT = {
     "half_yearly": 20,
     "yearly":      10,
 }
-
-
-def create_plan(
-    amount_paise: int,
-    frequency: str,
-    program_name: str,
-    currency: str = "INR",
-) -> dict[str, Any]:
-    """Create (or return a mock) Razorpay Plan for the given amount+frequency.
-    Callers are expected to cache the resulting plan_id per (program, frequency,
-    amount) to avoid duplicate plans on Razorpay."""
-    if frequency not in FREQUENCY_TO_PLAN:
-        raise ValueError(f"Unsupported frequency: {frequency}")
-    spec = FREQUENCY_TO_PLAN[frequency]
-    payload = {
-        "period": spec["period"],
-        "interval": spec["interval"],
-        "item": {
-            "name": (program_name or "RIYORA Subscription")[:200],
-            "amount": int(amount_paise),
-            "currency": currency,
-        },
-        "notes": {"frequency": frequency},
-    }
-    logger.info("[RZP.plan.create] payload=%s", payload)
-    client = _client()
-    if client is None:
-        return {
-            "id": f"mock_plan_{uuid.uuid4().hex[:16]}",
-            "period": spec["period"],
-            "interval": spec["interval"],
-            "item": payload["item"],
-            "is_mock": True,
-        }
-    plan = client.plan.create(payload)
-    logger.info("[RZP.plan.create] response id=%s status=%s", plan.get("id"), plan.get("status"))
-    plan["is_mock"] = False
-    return plan
 
 
 def create_subscription(

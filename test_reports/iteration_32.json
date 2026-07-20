@@ -1,0 +1,45 @@
+{
+  "summary": "iter32: Full E2E verification of the predefined-Razorpay-plan-ID refactor. Backend 6/6 pytest PASSED (test_iter32_predefined_plans.py) covering (a) GET /api/settings/app exposes preseeded razorpay_plan_id_monthly=plan_TFfcwnQxmKL774 and quarterly/half_yearly/yearly are absent, (b) admin PUT /api/settings/app/admin round-trip: set→persist→clear→persist for a quarterly plan_id, (c) NEGATIVE — POST /api/payments/subscription/init for a quarterly-frequency program (no plan_id configured) returns HTTP 500 with the admin-facing message containing 'quarterly', 'not configured', 'Payment Settings' / 'Subscription Plans', (d) MONTHLY init actually resolves plan_TFfcwnQxmKL774 and successfully creates a live Razorpay subscription (response 201, plan_id echo confirmed), (e) REGRESSION one-time /payments/order + /payments/verify works, (f) REGRESSION /payments/subscription/me still returns 200 items list. Frontend admin UI at /admin/payment-settings verified: monthly row pre-populated with plan_TFfcwnQxmKL774 and green 'Configured' badge; quarterly/half_yearly/yearly rows show 'Not set' badge with empty inputs; typing 'bad_id_12345' (bad prefix) and clicking save shows sonner toast \"Razorpay Plan IDs must start with 'plan_'\" and does NOT hit backend; typing valid plan_UITEST_QRT12345 + save → success toast + persists after refresh + badge flips to 'Configured'; clearing the field + save → PUT with null → cleared and empty after refresh. All data-testids (rzp-plan-ids-card, rzp-plan-row-<freq>, rzp-plan-input-<freq>, rzp-plan-save-<freq>) present and functional.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PUT /api/settings/app/admin (soft-delete DB constraint)",
+        "issue": "app_settings has a unique index on `key` that does NOT respect the soft-delete `deleted_at` column. If admin ever uses DELETE /api/settings/app/admin/{key} (which sets deleted_at≠None), any subsequent PUT for the same key fails with HTTP 409 'A record with this key already exists.' because the upsert filters on deleted_at=None, misses the soft-deleted row, then hits the unique-index conflict on insert. Discovered on this run because a stray soft-deleted `razorpay_plan_id_quarterly` row existed from a prior test iteration; cleaned it up. NOT triggered by the current frontend 'clear' flow (which uses PUT with value=null → in-place update, no soft delete), so no user-facing impact — but the DELETE endpoint is a latent trap. Fix: either add `deleted_at:null` to the unique index as a partial filter, or make the upsert filter on `{key}` only and reset `deleted_at:null` on update."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter32_predefined_plans.py",
+    "/app/test_reports/pytest/iter32.xml"
+  ],
+  "action_items": [
+    "OPTIONAL (latent): Fix app_settings soft-delete + unique-index conflict. Either (a) drop `deleted_at:None` from the upsert filter in /app/backend/app/routes/settings.py::admin_upsert_app_setting (so it re-uses a soft-deleted row), or (b) recreate the mongo index as `create_index('key', unique=True, partialFilterExpression={'deleted_at': None})` in /app/backend/app/db/mongo.py:91. The current 'clear via PUT null' UX for plan IDs is unaffected (in-place update), but this trap will bite any future feature that uses the DELETE endpoint."
+  ],
+  "critical_code_review_comments": [
+    "app/routes/enrolments.py::_get_configured_plan_id — reads razorpay_plan_id_<frequency> from app_settings and raises HTTPException(500, 'Razorpay plan for <freq> is not configured. Admin → Payment Settings → Subscription Plans …') when missing / bad prefix. Message contains the frequency and admin remediation path — verified end-to-end.",
+    "app/routes/enrolments.py::subscription_init — passes the resolved plan_id straight into rzp_create_subscription; no more dynamic plan creation, matching the refactor spec.",
+    "app/services/payment.py::create_subscription — payload now uses plan_id only (no `period`/`interval`), consistent with plans being pre-created on Razorpay dashboard. Backward-compat mock branch returns synthetic sub id.",
+    "frontend/src/pages/AdminPaymentSettings.jsx — client-side prefix validation on savePlanId short-circuits before the API call; toast copy is user-friendly. Green 'Configured' vs grey 'Not set' badge derived from val.startsWith('plan_') is correct.",
+    "frontend/src/pages/AdminPaymentSettings.jsx — 'Clear' path sends PUT with value=null (not DELETE) — this is exactly the safe path that avoids the soft-delete/unique-index trap described in backend_issues.minor. Nicely defensive.",
+    "REGRESSION: One-time /payments/order + /payments/verify path untouched — verified. /payments/subscription/me untouched — verified."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter32_predefined_plans.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6)",
+    "frontend": "100% (admin UI: pre-populate + validation + save + persist + clear all pass)"
+  },
+  "test_credentials": "Admin 9999999999/Admin@12345 (mobile+password). Dummy qa-tester@example.com/tester123 (email fallback login).",
+  "seed_data_creation": "Test category TEST_iter32_<slug>. Programs: TEST_iter32_QrtNoPlan (subscription/quarterly), TEST_iter32_MonthlyGood (subscription/monthly), TEST_iter32_OneTime (one_time). Left behind but namespaced. Also created a Razorpay live subscription during the monthly test (plan_TFfcwnQxmKL774) — safe, will expire per Razorpay's 60-cycle cap.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "RAZORPAY_MOCK_MODE=false (LIVE). Only razorpay_plan_id_monthly is pre-seeded (=plan_TFfcwnQxmKL774) — this is by design. When testing, DO NOT seed the other three unless you clean up after — the negative-error path depends on their absence. If you use the DELETE /api/settings/app/admin/{key} endpoint you'll create a soft-deleted row that will 409 subsequent PUTs of the same key; the frontend never does this — it always uses PUT with value=null. Regression coverage for iter31 payment-failure handling still passes (see iteration_31.json). Frontend admin page /admin/payment-settings has all data-testids per spec.",
+  "rca_of_the_issue": "n/a — no code bugs; only a latent DB-index/soft-delete gotcha uncovered via cleanup of stray test data. Documented in backend_issues.minor + action_items with the exact fix locations."
+}

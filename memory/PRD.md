@@ -889,3 +889,35 @@ notification so users are never left guessing why access didn't unlock.
   frontend Playwright flow green.** Coverage: pending/halted dedup,
   one-time payment.failed order-status write + notification, failed-subs
   admin endpoint, retry flow from halted, no regressions.
+
+---
+## 2026-02-20 — Predefined Razorpay Plan IDs (dynamic plan creation removed)
+
+### Behavioural shift (per user request)
+- The app no longer creates Razorpay Plans dynamically via `client.plan.create`.
+- Admin now pre-creates 4 subscription Plans directly on the Razorpay Dashboard
+  (Subscriptions → Plans → New Plan) and pastes each `plan_XXXX` id into
+  Admin → Payment Settings → **Subscription plan IDs**.
+- Storage: `app_settings` collection, keys:
+  `razorpay_plan_id_monthly`, `razorpay_plan_id_quarterly`,
+  `razorpay_plan_id_half_yearly`, `razorpay_plan_id_yearly`.
+
+### Backend
+- `routes/enrolments.py` uses `_get_configured_plan_id(db, frequency)` — raises
+  a 500 with a clear admin-facing message when the plan_id is missing.
+- `services/payment.py` — dead `create_plan()` function removed. Only
+  `create_subscription(plan_id, frequency, notes)` remains.
+
+### Frontend
+- `pages/AdminPaymentSettings.jsx` — new **"Razorpay · AutoPay · Subscription
+  plan IDs"** card. Per-frequency input + green/gray badge + save button
+  (data-testids: `rzp-plan-ids-card`, `rzp-plan-row-<freq>`,
+  `rzp-plan-input-<freq>`, `rzp-plan-save-<freq>`).
+- Validation: values must start with `plan_`.
+
+### Seed
+- `razorpay_plan_id_monthly = plan_TFfcwnQxmKL774` (provided by owner).
+
+### Bug fix bundled
+- `App.js` had a leftover duplicate closing block from a prior agent that
+  was causing a compile error (`Unexpected token (153:0)`). Removed.

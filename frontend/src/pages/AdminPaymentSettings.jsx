@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  Save, Trash2, Upload, Loader2, ImageIcon, ShieldCheck, RefreshCw,
+  Save, Trash2, Upload, Loader2, ImageIcon, ShieldCheck, RefreshCw, CheckCircle2, XCircle, Repeat,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -11,7 +11,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { manualPaymentsApi, resolveUploadUrl } from "@/services/manualPayments";
-import { formatApiError } from "@/lib/api";
+import api, { formatApiError } from "@/lib/api";
+
+const PLAN_FREQUENCIES = [
+  { key: "monthly",     label: "Monthly",      hint: "1 charge every 30 days" },
+  { key: "quarterly",   label: "Quarterly",    hint: "1 charge every 90 days" },
+  { key: "half_yearly", label: "Half-Yearly",  hint: "1 charge every 180 days" },
+  { key: "yearly",      label: "Yearly",       hint: "1 charge every 365 days" },
+];
 
 const MODES = [
   { key: "manual_qr", label: "Manual QR Payment", desc: "Users pay via UPI QR and submit UTR. Admin verifies manually.", enabled: true },
@@ -26,12 +33,25 @@ export default function AdminPaymentSettings() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Predefined Razorpay Plan IDs (one per frequency) — stored in app_settings.
+  const [planIds, setPlanIds] = useState({ monthly: "", quarterly: "", half_yearly: "", yearly: "" });
+  const [planSaving, setPlanSaving] = useState({}); // { monthly: true, ... }
+
   const load = async () => {
     setLoading(true);
     try {
-      const d = await manualPaymentsApi.adminGetSettings();
+      const [d, appSettings] = await Promise.all([
+        manualPaymentsApi.adminGetSettings(),
+        api.get("/settings/app").then((r) => r.data).catch(() => ({})),
+      ]);
       setData(d);
       setForm({ ...EMPTY, ...(d.active_qr || {}) });
+      setPlanIds({
+        monthly:     appSettings.razorpay_plan_id_monthly     || "",
+        quarterly:   appSettings.razorpay_plan_id_quarterly   || "",
+        half_yearly: appSettings.razorpay_plan_id_half_yearly || "",
+        yearly:      appSettings.razorpay_plan_id_yearly      || "",
+      });
     } catch (e) {
       toast.error(formatApiError(e, "Could not load settings"));
     } finally {
@@ -99,6 +119,27 @@ export default function AdminPaymentSettings() {
     }
   };
 
+  const savePlanId = async (frequency) => {
+    const value = (planIds[frequency] || "").trim();
+    if (value && !value.startsWith("plan_")) {
+      toast.error("Razorpay Plan IDs must start with 'plan_'");
+      return;
+    }
+    setPlanSaving((s) => ({ ...s, [frequency]: true }));
+    try {
+      await api.put("/settings/app/admin", {
+        key: `razorpay_plan_id_${frequency}`,
+        value: value || null,
+        description: `Razorpay Plan ID for ${frequency} subscription`,
+      });
+      toast.success(`${frequency.replace("_", "-")} plan ID saved`);
+    } catch (e) {
+      toast.error(formatApiError(e, "Could not save plan ID"));
+    } finally {
+      setPlanSaving((s) => ({ ...s, [frequency]: false }));
+    }
+  };
+
   return (
     <div className="px-6 py-6" data-testid="admin-payment-settings-page">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -153,6 +194,82 @@ export default function AdminPaymentSettings() {
             </div>
           ))}
         </div>
+      </Card>
+
+      {/* Razorpay Subscription Plans (predefined plan IDs) */}
+      <Card className="mt-6 p-5" data-testid="rzp-plan-ids-card">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="rw-eyebrow">Razorpay · AutoPay</p>
+            <h2 className="rw-serif text-2xl">Subscription plan IDs</h2>
+            <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
+              Create your 4 subscription plans directly on the <span className="font-semibold">Razorpay Dashboard</span>
+              &nbsp;(Subscriptions → Plans → New Plan) and paste the resulting <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[11px]">plan_XXXX</code> IDs below.
+              Whenever an admin creates a program with <span className="font-semibold">payment type = Subscription</span>,
+              this app will bind users to the matching plan ID based on the selected frequency — no dynamic plan
+              creation happens on the API.
+            </p>
+          </div>
+          <Repeat className="hidden h-6 w-6 text-neutral-400 sm:block" />
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {PLAN_FREQUENCIES.map(({ key, label, hint }) => {
+            const val = planIds[key] || "";
+            const configured = val.startsWith("plan_");
+            return (
+              <div
+                key={key}
+                className={`rounded-lg border p-3 ${configured ? "border-emerald-200 bg-emerald-50/40" : "border-neutral-200"}`}
+                data-testid={`rzp-plan-row-${key}`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">{label}</span>
+                      {configured ? (
+                        <Badge className="bg-emerald-600 text-white">
+                          <CheckCircle2 className="mr-1 h-3 w-3" /> Configured
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">
+                          <XCircle className="mr-1 h-3 w-3" /> Not set
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">{hint}</p>
+                  </div>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <Input
+                    value={val}
+                    onChange={(e) => setPlanIds((p) => ({ ...p, [key]: e.target.value.trim() }))}
+                    placeholder="plan_XXXXXXXXXXXXXX"
+                    className="font-mono text-xs"
+                    data-testid={`rzp-plan-input-${key}`}
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => savePlanId(key)}
+                    disabled={!!planSaving[key]}
+                    data-testid={`rzp-plan-save-${key}`}
+                  >
+                    {planSaving[key] ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          <ShieldCheck className="mr-1 inline h-3 w-3" />
+          Plan amount, currency and billing period are set on the Razorpay dashboard — those values will be enforced by
+          Razorpay regardless of what the program page displays. Keep them in sync.
+        </p>
       </Card>
 
       {/* Company QR & bank details */}
