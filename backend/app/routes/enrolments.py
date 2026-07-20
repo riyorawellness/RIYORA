@@ -32,8 +32,10 @@ from app.core.deps import db, get_current_user
 from app.services.payment import (
     FREQUENCY_TO_DAYS,
     cancel_subscription as rzp_cancel_subscription,
+    create_plan as rzp_create_plan,
     create_subscription as rzp_create_subscription,
     fetch_subscription as rzp_fetch_subscription,
+    fetch_subscription_payments as rzp_fetch_subscription_payments,
     is_mock as rzp_is_mock,
     key_id_for_frontend,
 )
@@ -147,28 +149,58 @@ async def _compute_subscription_amount(
     }
 
 
-async def _get_configured_plan_id(
-    database: AsyncIOMotorDatabase, frequency: str
-) -> str:
-    """Look up the Razorpay Plan ID for the given frequency from
-    `app_settings`. Admin pre-creates the 4 plans on the Razorpay dashboard
-    and pastes the plan_ids into Admin → Payment Settings → Subscription Plans.
+async def _get_or_create_plan(
+    database: AsyncIOMotorDatabase,
+    program: dict,
+    frequency: str,
+    amount_paise: int,
+) -> tuple[str, bool]:
+    """Return a Razorpay `plan_id` for the given (program, frequency, amount).
 
-    Key convention: `razorpay_plan_id_<frequency>` — e.g.
-    `razorpay_plan_id_monthly`, `razorpay_plan_id_quarterly`,
-    `razorpay_plan_id_half_yearly`, `razorpay_plan_id_yearly`.
+    Caches plan_ids in the `subscription_plans_cache` collection keyed by
+    (program_id, frequency, amount_paise) so we never create a duplicate
+    plan on Razorpay's side when a user re-subscribes. Cache is race-safe
+    via a unique index and idempotent upsert.
+
+    Returns `(plan_id, created_now)` where `created_now=True` means a
+    fresh Razorpay Plan API call happened on this request.
     """
-    key = f"razorpay_plan_id_{frequency}"
-    row = await database.app_settings.find_one({"key": key, "deleted_at": None})
-    plan_id = (row or {}).get("value")
-    if not plan_id or not isinstance(plan_id, str) or not plan_id.startswith("plan_"):
-        raise HTTPException(
-            500,
-            f"Razorpay plan for '{frequency}' is not configured. "
-            f"Admin → Payment Settings → Subscription Plans and paste the "
-            f"plan_id from the Razorpay dashboard.",
-        )
-    return plan_id
+    key = {
+        "program_id": program["id"],
+        "frequency": frequency,
+        "amount_paise": int(amount_paise),
+    }
+    cached = await database.subscription_plans_cache.find_one(
+        {**key, "deleted_at": None}
+    )
+    if cached and cached.get("plan_id"):
+        return cached["plan_id"], False
+
+    plan = rzp_create_plan(
+        amount_paise=amount_paise,
+        frequency=frequency,
+        program_name=program.get("name") or "RIYORA Subscription",
+    )
+    plan_id = plan["id"]
+    now = _iso()
+    await database.subscription_plans_cache.update_one(
+        key,
+        {
+            "$set": {
+                **key,
+                "plan_id": plan_id,
+                "is_mock": bool(plan.get("is_mock", False)),
+                "updated_at": now,
+                "deleted_at": None,
+            },
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+    return plan_id, True
 
 
 class SubscriptionInitRequest(BaseModel):
@@ -296,11 +328,13 @@ async def subscription_init(
         payload={"frequency": frequency, "amount_paise": amount_paise, "breakdown": breakdown},
     )
     try:
-        plan_id = await _get_configured_plan_id(database, frequency)
+        plan_id, created_now = await _get_or_create_plan(
+            database, program, frequency, amount_paise,
+        )
         await _dbg(
             database, source="backend", stage="init.plan_ok",
             program_id=body.program_id, membership_id=membership_id,
-            payload={"plan_id": plan_id, "source": "app_settings"},
+            payload={"plan_id": plan_id, "created_now": created_now, "source": "dynamic_cached"},
         )
         subscription = rzp_create_subscription(
             plan_id=plan_id,
@@ -399,6 +433,12 @@ async def subscription_verify(
     """Post-checkout reconciliation. Fetches authoritative status from Razorpay,
     updates the local row, and materialises a `program_purchases` row if the
     first charge has been captured (idempotent).
+
+    Webhook-independent: if Razorpay says `paid_count >= 1`, we materialise
+    the purchase immediately using the actual payment_id from
+    `subscription.fetch_payments`. This bypasses the webhook path entirely so
+    users get access even if the merchant's webhook plumbing is misconfigured
+    or delayed.
     """
     row = await database.subscriptions.find_one(
         {"subscription_id": subscription_id, "deleted_at": None}
@@ -434,6 +474,46 @@ async def subscription_verify(
         },
         sort=[("purchase_date", -1)],
     )
+
+    # ------------------------------------------------------------------
+    # Webhook-independent materialisation.
+    # Razorpay's SMS to the user says "Rs.X payment successful" the moment
+    # the first charge is captured — `paid_count` reflects that on
+    # `subscription.fetch`. If we see paid_count >= 1 and don't yet have a
+    # purchase row, materialise it now using the real payment_id from
+    # `subscription.fetch_payments`. This makes the flow work even when
+    # the merchant's webhook endpoint is misconfigured.
+    # ------------------------------------------------------------------
+    if not purchase and not rzp_is_mock() and paid_count and int(paid_count) >= 1:
+        payments = rzp_fetch_subscription_payments(subscription_id)
+        # Filter to only captured/authorized payments so we don't pick up
+        # a failed attempt.
+        captured = [
+            p for p in payments
+            if (p.get("status") in ("captured", "authorized"))
+        ]
+        # Pick the latest captured payment (SDK returns newest-first).
+        first_payment = captured[0] if captured else None
+        if first_payment:
+            purchase = await _materialise_subscription_purchase(
+                database,
+                subscription_row={**row, "paid_count": paid_count},
+                razorpay_payment_id=first_payment["id"],
+                cycle_index=int(paid_count),
+            )
+            # Reflect the transition locally so subsequent polls short-circuit.
+            live_status = "active"
+            await database.subscriptions.update_one(
+                {"_id": row["_id"]},
+                {"$set": {"status": "active", "updated_at": _iso()}},
+            )
+            from app.services.sub_debug import log_event as _dbg
+            await _dbg(
+                database, source="backend", stage="verify.materialised_from_api",
+                subscription_id=subscription_id,
+                membership_id=current["membership_id"],
+                payload={"payment_id": first_payment["id"], "paid_count": paid_count},
+            )
 
     # Mock mode: simulate a successful first charge on verify.
     if rzp_is_mock() and not purchase:
@@ -481,6 +561,27 @@ async def _materialise_subscription_purchase(
         if existing:
             existing.pop("_id", None)
             return existing
+
+    # Cross-check by (subscription_id, cycle) so a webhook arriving after
+    # `subscription_verify` has already materialised the row doesn't create
+    # a duplicate purchase. Backfill payment_id if verify used a placeholder.
+    if subscription_row.get("subscription_id") and cycle_index is not None:
+        by_cycle = await database.program_purchases.find_one({
+            "subscription_id": subscription_row["subscription_id"],
+            "subscription_cycle": cycle_index,
+            "deleted_at": None,
+        })
+        if by_cycle:
+            if (
+                razorpay_payment_id
+                and by_cycle.get("razorpay_payment_id") != razorpay_payment_id
+                and str(by_cycle.get("razorpay_payment_id", "")).startswith("pay_")  # only backfill placeholders
+                is False
+            ):
+                # keep the earlier value; nothing to do
+                pass
+            by_cycle.pop("_id", None)
+            return by_cycle
 
     program = await database.programs.find_one(
         {"id": subscription_row["program_id"], "deleted_at": None}

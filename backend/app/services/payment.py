@@ -113,10 +113,8 @@ FREQUENCY_TO_DAYS = {
     "yearly":      365,
 }
 
-# Razorpay Plan `period` mapping is intentionally NOT used at runtime — plans
-# are pre-created by the admin on the Razorpay dashboard and their `plan_id`s
-# are stored in `app_settings` (`razorpay_plan_id_<frequency>`). We keep this
-# reference so it's clear what each frequency maps to on Razorpay's side.
+# Razorpay Plan `period` mapping — used at runtime by `create_plan()` to
+# build the Razorpay plan payload for the given frequency.
 FREQUENCY_TO_PLAN = {
     "monthly":     {"period": "monthly", "interval": 1},
     "quarterly":   {"period": "monthly", "interval": 3},
@@ -139,6 +137,45 @@ FREQUENCY_TO_TOTAL_COUNT = {
     "half_yearly": 20,
     "yearly":      10,
 }
+
+
+def create_plan(
+    amount_paise: int,
+    frequency: str,
+    program_name: str,
+    currency: str = "INR",
+) -> dict[str, Any]:
+    """Create (or return a mock) Razorpay Plan for the given amount+frequency.
+    Callers are expected to cache the resulting `plan_id` per
+    (program_id, frequency, amount_paise) to avoid duplicate plans on
+    Razorpay's side."""
+    if frequency not in FREQUENCY_TO_PLAN:
+        raise ValueError(f"Unsupported frequency: {frequency}")
+    spec = FREQUENCY_TO_PLAN[frequency]
+    payload = {
+        "period": spec["period"],
+        "interval": spec["interval"],
+        "item": {
+            "name": (program_name or "RIYORA Subscription")[:200],
+            "amount": int(amount_paise),
+            "currency": currency,
+        },
+        "notes": {"frequency": frequency},
+    }
+    logger.info("[RZP.plan.create] payload=%s", payload)
+    client = _client()
+    if client is None:
+        return {
+            "id": f"mock_plan_{uuid.uuid4().hex[:16]}",
+            "period": spec["period"],
+            "interval": spec["interval"],
+            "item": payload["item"],
+            "is_mock": True,
+        }
+    plan = client.plan.create(payload)
+    logger.info("[RZP.plan.create] response id=%s status=%s", plan.get("id"), plan.get("status"))
+    plan["is_mock"] = False
+    return plan
 
 
 def create_subscription(
@@ -196,6 +233,38 @@ def fetch_subscription(subscription_id: str) -> dict[str, Any] | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("[RZP.subscription.fetch] %s failed: %s", subscription_id, exc)
         return None
+
+
+def fetch_subscription_payments(subscription_id: str) -> list[dict[str, Any]]:
+    """Fetch the payments already captured against a subscription.
+
+    Used by `subscription_verify` to materialise a `program_purchases` row
+    the moment Razorpay confirms the first charge — without depending on
+    the merchant's webhook plumbing. Returns a list newest-first; empty
+    on any error or mock mode.
+    """
+    client = _client()
+    if client is None:
+        return []
+    try:
+        # Razorpay Python SDK: /v1/subscriptions/{id}/payments
+        # Some SDK versions expose this via `subscription.fetch_payments`,
+        # others require raw payment.all() with a filter. Try both.
+        if hasattr(client.subscription, "fetch_payments"):
+            resp = client.subscription.fetch_payments(subscription_id)  # type: ignore[attr-defined]
+        else:
+            resp = client.payment.all({"subscription_id": subscription_id, "count": 10})
+        items = resp.get("items", []) if isinstance(resp, dict) else (resp or [])
+        logger.info(
+            "[RZP.subscription.fetch_payments] id=%s payments=%d",
+            subscription_id, len(items),
+        )
+        return items
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[RZP.subscription.fetch_payments] %s failed: %s", subscription_id, exc,
+        )
+        return []
 
 
 def cancel_subscription(

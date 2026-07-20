@@ -1,0 +1,53 @@
+{
+  "summary": "iter33: Full E2E verification of two-part change — (B) dynamic Razorpay plan creation restored with race-safe subscription_plans_cache, and (A) webhook-independent verify that materialises program_purchases from Razorpay's fetch_subscription + fetch_subscription_payments the moment paid_count>=1. Backend 10/10 pytest PASSED covering: (1) /payments/subscription/init returns 201 with plan_id (mock_plan_/plan_ prefix), subscription_id, short_url, key_id, breakdown; (2) plan-cache reuse — two /init calls (and even after subscription row deletion, a 3rd /init) all return the SAME cached plan_id and yield exactly ONE row in subscription_plans_cache; (3) mock-mode /verify materialises purchase idempotently — second /verify returns the same purchase_id and still one row; (4) webhook idempotency — after /verify materialised the purchase, a subscription.charged webhook with a DIFFERENT razorpay_payment_id for the same (subscription_id, cycle) does NOT create a duplicate row (dedup on (subscription_id, subscription_cycle) works); (5) regressions — /subscription/me returns 200 list, /cancel works, free enrol works, one-time /payments/order + /payments/verify works; (6) source-level assertion that AdminPaymentSettings.jsx has NO rzp-plan-ids-card / razorpay_plan_id references; (7) subscription_plans_cache has the required unique+partial index. Frontend UI: /admin/payment-settings loads with only 'Payment mode' + 'Company QR' cards, plan-ID card is absent (data-testid rzp-plan-ids-card is null); source-code shows SubscriptionCheckoutModal pollVerify runs 20×2s=40s with success toast 'Mandate active — first cycle charged.' and timeout copy referencing the SMS/auto-activation message.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "index setup (subscription_plans_cache.uniq_program_freq_amount_live)",
+        "issue": "The unique+partial index actually exists in the running mongo instance (verified via index_information) but is NOT created by any file under /app/backend/ (no CREATE_INDEX call, no migration). It was clearly created manually / out-of-band. On a fresh DB deployment (production first-launch) the index will be MISSING, so two concurrent /init calls could race on rzp_create_plan() and produce duplicate Razorpay plans + a duplicate cache row. FIX: add `await db.subscription_plans_cache.create_index([('program_id', 1), ('frequency', 1), ('amount_paise', 1)], unique=True, partialFilterExpression={'deleted_at': None}, name='uniq_program_freq_amount_live')` inside app/db/mongo.py::create_indexes()."
+      },
+      {
+        "endpoint": "app/routes/enrolments.py::_materialise_subscription_purchase (lines ~575-583)",
+        "issue": "Dead code inside the (subscription_id, cycle_index) dedup branch. The inner `if (payment_id != existing) and (str(...).startswith('pay_') is False):` block has an empty `pass` body — no backfill occurs. The comment says 'only backfill placeholders' but the code never actually backfills. This does NOT break the current requirement (dedup still works — verified by test_webhook_after_verify_is_deduped_by_cycle) but a future webhook that arrives with the real Razorpay payment_id will leave the purchase row stuck with the mock/placeholder pay_ id forever. LOW priority."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter33_dynamic_plan_and_webhook_indep.py",
+    "/app/test_reports/pytest/iter33.xml"
+  ],
+  "action_items": [
+    "Add explicit index creation for subscription_plans_cache in app/db/mongo.py::create_indexes so fresh deployments have race-safety. See backend_issues.minor for the exact snippet.",
+    "OPTIONAL: Either implement the payment_id backfill inside _materialise_subscription_purchase's (sub_id, cycle) dedup branch, or drop the dead if-block that currently just `pass`es."
+  ],
+  "critical_code_review_comments": [
+    "app/routes/enrolments.py::_get_or_create_plan uses upsert with a compound key filter — good idempotency behaviour PROVIDED the unique index exists. Under a race without the unique index, both requests would hit rzp_create_plan() and both would upsert, creating two Razorpay plans (only one row survives because the last update wins). This is exactly the risk the review request called out and the index is the fix.",
+    "app/routes/enrolments.py::subscription_verify — webhook-independent materialisation is well-guarded: it only fires when NOT in mock mode AND fetch_subscription reports paid_count>=1 AND there's no existing purchase row AND fetch_subscription_payments returns at least one captured/authorized payment. Uses newest-first assumption for `captured[0]` which matches Razorpay SDK ordering.",
+    "app/routes/enrolments.py::subscription_verify — after materialising, it locally sets status='active' and paid_count so subsequent polls short-circuit. This is exactly what the frontend 20×2s loop depends on. Good.",
+    "app/services/payment.py::fetch_subscription_payments — defensive: tries client.subscription.fetch_payments first, falls back to client.payment.all filter. Returns [] on any exception so /verify can't 500 due to the SDK. Solid.",
+    "app/services/payment.py::create_plan restored intact; short_url/key_id/breakdown all threaded through to the frontend response.",
+    "app/routes/payments.py::_handle_subscription_webhook subscription.charged branch calls _materialise_subscription_purchase with cycle_index=paid_count — matches the same dedup key used by /verify, so cross-path idempotency holds.",
+    "frontend/src/components/SubscriptionCheckoutModal.jsx pollVerify: 20-attempt loop @ 2s interval = 40s total (matches spec). Success toast copy correct. Timeout copy correctly references SMS + auto-activation. debug logs fire at start/tick/success/timeout for admin traceability.",
+    "frontend/src/pages/AdminPaymentSettings.jsx: fully cleaned of plan-ID card + all razorpay_plan_id references. Payment mode + Company QR cards render normally with existing Razorpay+Manual QR settings."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter33_dynamic_plan_and_webhook_indep.py (new)",
+    "/app/backend/.env (RAZORPAY_MOCK_MODE toggled true→false during pytest, RESTORED to false)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10)",
+    "frontend": "100% (Admin Payment Settings verified in-browser; SubscriptionCheckoutModal verified via source since live-mode Razorpay authorisation cannot be completed from a headless browser)"
+  },
+  "test_credentials": "Admin 9999999999/Admin@12345 (mobile+password). Dummy qa-tester@example.com/tester123 (email fallback login via POST /api/auth/login).",
+  "seed_data_creation": "Created (and left) several TEST_iter33_* categories + programs (Monthly subscription, One-time, Free, Cancel) namespaced with a random 6-char suffix. Also inserted rows in subscription_plans_cache / subscriptions / program_purchases for the tester account for those programs. Safe to clean up via admin Danger Zone if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "RAZORPAY_MOCK_MODE=false has been RESTORED post-tests. To reproduce in mock mode: flip to true in /app/backend/.env, `sudo supervisorctl restart backend`, then run `pytest backend/tests/test_iter33_dynamic_plan_and_webhook_indep.py -v`. The pytest fixture handles the toggle automatically. Iter32 predefined-plan tests are STALE (feature reverted) — do not run test_iter32_predefined_plans.py. Iter31 payment-failure tests still pass. All admin UI changes are cosmetic (removal only). Live Razorpay is real — do NOT actually click 'Subscribe' in the UI unless you're willing to consume a real UPI mandate from a real phone.",
+  "rca_of_the_issue": "n/a — no user-visible bugs. Two code-hygiene items: (1) unique index only exists via manual mongo creation, not in create_indexes(); (2) small block of dead code in the (subscription_id, cycle) dedup path that intended to backfill placeholder payment ids but doesn't. Neither affects the current behaviour that the review request asked us to verify."
+}

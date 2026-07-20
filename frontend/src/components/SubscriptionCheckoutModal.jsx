@@ -116,7 +116,13 @@ export default function SubscriptionCheckoutModal({
   const pollVerify = async () => {
     setStatus("processing");
     debugLog("poll.start", { subscription_id: session.subscription_id });
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // 20 × 2s = 40s window. Razorpay Checkout SDK sometimes closes with a
+    // misleading "Payment could not be completed" screen before the
+    // subscription actually transitions to active on their side — the
+    // backend verify endpoint now polls Razorpay's API directly and
+    // materialises the purchase as soon as `paid_count >= 1`, independent
+    // of the merchant's webhook plumbing.
+    for (let attempt = 0; attempt < 20; attempt++) {
       try {
         const res = await paymentsApi.subscriptionVerify(session.subscription_id);
         debugLog("poll.tick", {
@@ -141,7 +147,10 @@ export default function SubscriptionCheckoutModal({
     }
     setStatus("ready");
     setError(
-      "The mandate could not be confirmed. Common reasons: you cancelled the UPI approval, your bank declined the mandate, or the app timed out. Please tap Subscribe again and use a different UPI ID if the issue continues.",
+      "We are still waiting for Razorpay to confirm your mandate. If you " +
+      "received an SMS saying the payment was successful, your access will " +
+      "activate automatically within a few minutes — refresh this page or " +
+      "check My Subscriptions. Otherwise please try again.",
     );
     debugLog("poll.timeout", { subscription_id: session.subscription_id, ok: false });
   };
