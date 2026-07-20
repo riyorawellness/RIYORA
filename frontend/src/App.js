@@ -19,6 +19,7 @@ import ProgramDetail from "@/pages/ProgramDetail";
 import ModulePlayer from "@/pages/ModulePlayer";
 import Assessment from "@/pages/Assessment";
 import Certificate from "@/pages/Certificate";
+import MyCertificates from "@/pages/MyCertificates";
 import ReferEarn from "@/pages/ReferEarn";
 import Team from "@/pages/Team";
 import BankDetails from "@/pages/BankDetails";
@@ -92,6 +93,7 @@ function App() {
             <Route path="programs/:id/module/:moduleId" element={<ModulePlayer />} />
             <Route path="programs/:id/assessment/:moduleId" element={<Assessment />} />
             <Route path="certificate/:id" element={<Certificate />} />
+            <Route path="certificates" element={<MyCertificates />} />
             <Route path="refer" element={<ReferEarn />} />
             <Route path="team" element={<Team />} />
             <Route path="bank" element={<BankDetails />} />

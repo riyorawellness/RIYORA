@@ -1,0 +1,35 @@
+{
+  "summary": "iter34: E2E verification of the 4 UX changes: (1) Home banner + (2) Featured programs section on Home; (3) manual 'log session' button REMOVED and replaced with home-meter-info explainer; (4) auto-certificate issuance + auto-activity-session-log on final module completion, with a new /app/certificates page and Certificate detail page. Backend: 11/11 pytest PASSED covering /api/banners/active?placement=home, /api/programs?is_featured=true filter (only featured returned, non-overlap with is_featured=false), full auto-cert flow (seed program+2 modules, insert active purchase, complete module 1 → cert=None + 50%, complete module 2 → cert dict returned with id/program_name/certificate_number/verification_number/completion_date/status=issued AND an activity_sessions row inserted with source='module_complete' + matching module_id, idempotency verified — second /complete on final module returns same cert id + certificate_number), /api/certificates/me list & /me/{id} detail, and 404 on foreign cert id. Frontend E2E (mobile viewport 390x844) — logged in as qa-tester@example.com (email fallback), verified: /app/home renders Welcome-offer banner from ActiveBanners placement=home, activity meter section shows the new home-meter-info div with the exact copy 'Sessions are counted automatically each time you complete a module. Keep learning to stay eligible for rewards.', old home-log-session-btn testid is ABSENT (count=0), 'Featured programs' section renders with home-featured-{id} tiles (2 real programs + the section header testid). /app/certificates shows my-certs-grid with 1 my-cert-row-{cert_id} for the cert created by the backend test. Clicking the row navigates to /app/certificate/{id} which renders cert-program-name, cert-completion-date (COMPLETED · 20 JULY 2026), cert-number (TEST-CERT-4DFB8D03B6), cert-user-name (QA Tester Email), verification number, membership id, cert-share-btn and cert-back-btn — and NO Download button (correctly removed). /app/profile has profile-nav-certificates linking to /app/certificates; the old hardcoded /app/certificate/inner-peace link is GONE. No regressions observed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter34_home_certs_automation.py",
+    "/app/test_reports/pytest/iter34.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "app/services/program_engine.py::mark_module_completed correctly auto-invokes activity_meter.log_session(source='module_complete', module_id=..., program_id=...) inside a try/except so any activity_meter failure never blocks module completion — validated by pytest by asserting the activity_sessions row exists post-call.",
+    "app/routes/progress.py::complete_module returns {progress, certificate} in one hop, meaning the frontend doesn't need a second call to check cert issuance — matches the /app/certificate route behaviour.",
+    "app/services/program_engine.py::issue_certificate_if_eligible is idempotent: checks for existing cert with same (user, program, status=issued) BEFORE inserting; second /complete on the final module returned identical id + certificate_number in the pytest run.",
+    "frontend Home.jsx line 73: programsApi.list({ is_featured: true, is_active: true, page_size: 6, sort: 'order_index,level' }) — correctly filters. Featured cards are rendered ONLY if featuredList.length > 0 which handles the empty state gracefully.",
+    "frontend Certificate.jsx correctly uses /api/certificates/me/{id} (no mock) — verified in-browser: real backend data flowed through and rendered.",
+    "MyCertificates.jsx page_size=50 in the list call — reasonable ceiling for a user's certs, but page_size arg does not currently paginate on scroll. LOW priority — the backend caps at 200 anyway."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter34_home_certs_automation.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all 4 UX changes validated in-browser)"},
+  "test_credentials": "Admin 9999999999/Admin@12345 (mobile+password). Dummy qa-tester@example.com/tester123 (email fallback login via POST /api/auth/login).",
+  "seed_data_creation": "Created a fresh category (test-iter34-cat-*), a fresh program with access_mode=free (test-iter34-prog-*) with 2 modules, and inserted an active purchase for qa-tester (RW951682) directly in program_purchases. Completing both modules issued a real certificate (TEST-CERT-4DFB8D03B6) — visible under /app/certificates for the tester. Safe to clean via admin Danger Zone; TEST_iter34_banner_* row may also exist in banners.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test suite for iter34 lives at backend/tests/test_iter34_home_certs_automation.py. Run with `python -m pytest backend/tests/test_iter34_home_certs_automation.py -v -n 0 --junitxml=/app/test_reports/pytest/iter34.xml`. It requires MongoDB access (uses MONGO_URL + DB_NAME=test_database) to directly insert an active program_purchase row (bypasses razorpay) and to assert on the activity_sessions collection. It also creates seed data (category/program/modules/purchase) so it is idempotent-by-uuid but leaves rows behind. The pytest addopts default to `-n 2 --dist loadscope` which BREAKS class-shared state on this file (the TestAutoCertificateOnFinalModule class stores prog_id + module_ids as class attrs); use `-n 0` OR restructure into fixtures if the addopts change. The tester now has one real certificate visible in /app/certificates — subsequent iters can rely on that when validating the empty vs populated states of MyCertificates.jsx.",
+  "rca_of_the_issue": "n/a — no bugs. Backend logic was already correct as noted in the review request; iter34 added the test coverage that proves it and validated the 4 frontend changes end-to-end."
+}

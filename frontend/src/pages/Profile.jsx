@@ -87,7 +87,7 @@ export default function Profile() {
         <Item to="/app/commissions" icon={Wallet} title="Wallet · Referral income" hint="Earnings ledger · pending / approved / paid" testid="profile-nav-commissions" />
         <Item to="/app/payouts" icon={Landmark} title="Payouts" hint="Bank transfers · redemption history" testid="profile-nav-payouts" />
         <Item to="/app/reports" icon={FileText} title="Reports" hint="Download PDF reports" testid="profile-nav-reports" />
-        <Item to="/app/certificate/inner-peace" icon={Award} title="Certificates" hint="Achievements & completion" />
+        <Item to="/app/certificates" icon={Award} title="My Certificates" hint="Achievements & completion" testid="profile-nav-certificates" />
       </Section>
 
       <Section title="Account">

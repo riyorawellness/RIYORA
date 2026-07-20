@@ -1,64 +1,164 @@
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Download, Share2 } from "lucide-react";
+import { ChevronLeft, Loader2, Share2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { PROGRAMS } from "@/mock/data";
 import { TID } from "@/constants/testIds";
+import api, { formatApiError } from "@/lib/api";
 
+/**
+ * Real Certificate page — reads /api/certificates/me/{id} (backend-issued
+ * on final module completion) and renders program name + completion date +
+ * membership + cert / verification numbers. No mocks.
+ */
 export default function Certificate() {
   const nav = useNavigate();
   const { user } = useAuth();
   const { id } = useParams();
-  const program = PROGRAMS.find((p) => p.id === id) || PROGRAMS[0];
+  const [cert, setCert] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get(`/certificates/me/${id}`);
+        setCert(data);
+      } catch (e) {
+        setError(formatApiError(e, "Could not load certificate"));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [id]);
+
+  const share = async () => {
+    const text = cert
+      ? `I just completed ${cert.program_name} on RIYORA Wellness · Cert # ${cert.certificate_number}`
+      : "";
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "My RIYORA Certificate", text });
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard");
+    } catch {
+      /* user dismissed native share sheet */
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[hsl(var(--rw-off-white))]">
       <div className="rw-phone rw-safe-top px-5 pt-5">
-        <button onClick={() => nav(-1)} className="grid h-9 w-9 place-items-center rounded-full">
+        <button
+          onClick={() => nav(-1)}
+          className="grid h-9 w-9 place-items-center rounded-full"
+          data-testid="cert-back-btn"
+        >
           <ChevronLeft className="h-5 w-5 text-[hsl(var(--rw-royal-deep))]" />
         </button>
 
-        <h1 className="mt-6 rw-serif text-3xl">Your certificate</h1>
-        <p className="text-sm text-muted-foreground">Congratulations — you&apos;ve completed {program.name}.</p>
+        {loading && (
+          <div className="mt-16 grid place-items-center text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <p className="mt-2 text-sm">Loading your certificate…</p>
+          </div>
+        )}
 
-        <div className="mt-6 rw-card overflow-hidden p-0" data-testid={TID.certificatePreview}>
-          <div className="rw-card-royal p-8 text-center">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-white/70">Certificate of completion</p>
-            <p className="mt-6 text-sm text-white/70">This certifies that</p>
-            <h2 className="mt-1 rw-serif text-4xl text-white">{user?.full_name}</h2>
-            <p className="mt-4 text-sm text-white/70">has completed the program</p>
-            <p className="mt-1 rw-serif text-2xl text-[hsl(var(--rw-gold))]">{program.name}</p>
-            <p className="mt-6 text-[11px] uppercase tracking-widest text-white/50">
-              Issued · 3 July 2026
+        {!loading && error && (
+          <div className="mt-16 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {!loading && cert && (
+          <>
+            <h1 className="mt-6 rw-serif text-3xl">Your certificate</h1>
+            <p className="text-sm text-muted-foreground">
+              Congratulations — you&apos;ve completed{" "}
+              <span className="font-semibold text-[hsl(var(--rw-royal-deep))]">
+                {cert.program_name}
+              </span>
+              .
             </p>
-          </div>
-          <div className="grid grid-cols-2 divide-x p-5 text-center" style={{ borderColor: "hsl(var(--rw-grey-100))" }}>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Membership</div>
-              <div className="mt-1 rw-serif text-lg">{user?.membership_id}</div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cert No.</div>
-              <div className="mt-1 rw-serif text-lg">RW-{program.id.toUpperCase()}</div>
-            </div>
-          </div>
-        </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          <button
-            onClick={() => toast.info("PDF download unlocks in the next phase")}
-            className="rw-btn-pill rw-btn-ghost"
-          >
-            <Download className="h-4 w-4" /> Download
-          </button>
-          <button
-            onClick={() => toast.success("Sharing coming soon")}
-            className="rw-btn-pill rw-btn-primary"
-          >
-            <Share2 className="h-4 w-4" /> Share
-          </button>
-        </div>
+            <div className="mt-6 rw-card overflow-hidden p-0" data-testid={TID.certificatePreview}>
+              <div className="rw-card-royal p-8 text-center">
+                <p className="text-[11px] uppercase tracking-[0.3em] text-white/70">
+                  Certificate of completion
+                </p>
+                <p className="mt-6 text-sm text-white/70">This certifies that</p>
+                <h2 className="mt-1 rw-serif text-4xl text-white" data-testid="cert-user-name">
+                  {cert.user_name || user?.full_name}
+                </h2>
+                <p className="mt-4 text-sm text-white/70">has successfully completed</p>
+                <p className="mt-1 rw-serif text-2xl text-[hsl(var(--rw-gold))]" data-testid="cert-program-name">
+                  {cert.program_name}
+                </p>
+                <p className="mt-6 text-[11px] uppercase tracking-widest text-white/50" data-testid="cert-completion-date">
+                  Completed · {formatDate(cert.completion_date || cert.issue_date)}
+                </p>
+              </div>
+              <div
+                className="grid grid-cols-2 divide-x p-5 text-center"
+                style={{ borderColor: "hsl(var(--rw-grey-100))" }}
+              >
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Membership
+                  </div>
+                  <div className="mt-1 rw-serif text-lg" data-testid="cert-membership">
+                    {user?.membership_id}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Cert No.
+                  </div>
+                  <div className="mt-1 rw-serif text-lg" data-testid="cert-number">
+                    {cert.certificate_number}
+                  </div>
+                </div>
+              </div>
+              <div
+                className="flex items-center justify-center gap-1.5 border-t px-4 py-3 text-[10px] uppercase tracking-widest text-muted-foreground"
+                style={{ borderColor: "hsl(var(--rw-grey-100))" }}
+              >
+                <ShieldCheck className="h-3 w-3" />
+                Verification · {cert.verification_number}
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <button
+                onClick={share}
+                className="w-full rw-btn-pill rw-btn-primary"
+                data-testid="cert-share-btn"
+              >
+                <Share2 className="h-4 w-4" /> Share
+              </button>
+            </div>
+
+            <p className="mt-4 text-center text-[10px] text-muted-foreground">
+              Issued on {formatDate(cert.issue_date)} · RIYORA Wellness
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
 }

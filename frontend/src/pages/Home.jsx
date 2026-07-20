@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Bell, Clock, HelpCircle, Play, PlusCircle } from "lucide-react";
-import { toast } from "sonner";
+import { Bell, Clock, HelpCircle, Play } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import Logo from "@/components/Logo";
 import { TID } from "@/constants/testIds";
@@ -10,7 +9,6 @@ import { manualPaymentsApi } from "@/services/manualPayments";
 import { notificationsApi } from "@/services/notifications";
 import { programsApi } from "@/services/programs";
 import ActiveBanners from "@/components/ActiveBanners";
-import { formatApiError } from "@/lib/api";
 
 const FALLBACK_THUMB =
   "https://images.unsplash.com/photo-1518241353330-0f7941c2d9b5?auto=format&fit=crop&w=800&q=60";
@@ -36,10 +34,9 @@ export default function Home() {
   const { user } = useAuth();
   const first = user?.full_name?.split(" ")[0] ?? "Seeker";
   const [meter, setMeter] = useState(null);
-  const [logging, setLogging] = useState(false);
   const [pending, setPending] = useState([]);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
-  const [featured, setFeatured] = useState(null);
+  const [featuredList, setFeaturedList] = useState([]);
   const [continueCard, setContinueCard] = useState(null);
 
   const loadMeter = async () => {
@@ -77,7 +74,7 @@ export default function Home() {
           .catch(() => ({ items: [] })),
         programsApi.continueLearning().catch(() => null),
       ]);
-      setFeatured((others?.items || [])[0] || null);
+      setFeaturedList(others?.items || []);
       setContinueCard(cont || null);
     } catch (e) {
       // silent
@@ -93,19 +90,6 @@ export default function Home() {
     const t = setInterval(loadNotifCount, 30000);
     return () => clearInterval(t);
   }, []);
-
-  const logSession = async () => {
-    setLogging(true);
-    try {
-      const res = await activityApi.logSession({ source: "manual" });
-      setMeter(res.meter);
-      toast.success("Session logged");
-    } catch (e) {
-      toast.error(formatApiError(e, "Could not log session"));
-    } finally {
-      setLogging(false);
-    }
-  };
 
   const completed = meter?.completed ?? 0;
   const required = meter?.required ?? 4;
@@ -269,21 +253,19 @@ export default function Home() {
           </div>
         </div>
         {meter && meter.has_active_plan && (
-          <button
-            onClick={logSession}
-            disabled={logging || completed >= required}
-            className="mt-4 flex w-full items-center justify-center gap-2 rw-btn-pill bg-[hsl(var(--rw-sky-soft))] text-[hsl(var(--rw-royal-deep))] disabled:opacity-50"
-            data-testid="home-log-session-btn"
+          <div
+            className="mt-4 rounded-xl border border-[hsl(var(--rw-royal))]/15 bg-[hsl(var(--rw-sky-soft))] px-4 py-3 text-xs text-[hsl(var(--rw-royal-deep))]"
+            data-testid="home-meter-info"
           >
-            <PlusCircle className="h-4 w-4" />
-            {completed >= required ? "Cycle complete" : "Mark today's session"}
-          </button>
+            Sessions are counted automatically each time you complete a module. Keep learning to
+            stay eligible for rewards.
+          </div>
         )}
       </section>
 
       {/* Continue-learning / featured card */}
       {(() => {
-        const cardProgram = continueCard?.program || featured;
+        const cardProgram = continueCard?.program || featuredList[0];
         if (!cardProgram) return null;
         const thumb =
           cardProgram.thumbnail_url ||
@@ -339,29 +321,40 @@ export default function Home() {
         );
       })()}
 
-      {/* featured */}
-      {featured && (
+      {/* featured — all admin-flagged programs */}
+      {featuredList.length > 0 && (
         <section className="mt-5" data-testid={TID.homeFeaturedProgram}>
           <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="rw-serif text-2xl">Featured program</h2>
+            <h2 className="rw-serif text-2xl">
+              Featured {featuredList.length > 1 ? "programs" : "program"}
+            </h2>
             <Link to="/app/programs" className="text-xs font-semibold text-[hsl(var(--rw-royal))]">See all</Link>
           </div>
-          <Link to={`/app/programs/${featured.id}`} className="block rw-card overflow-hidden p-0">
-            <img
-              src={featured.thumbnail_url || featured.banner_url || FALLBACK_BANNER}
-              alt=""
-              className="h-36 w-full object-cover"
-            />
-            <div className="p-4">
-              <p className="rw-eyebrow">
-                {featured.level != null ? `Level ${featured.level}` : "Program"}
-              </p>
-              <h3 className="mt-1 rw-serif text-xl">{featured.name}</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {featured.short_description || featured.description || ""}
-              </p>
-            </div>
-          </Link>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {featuredList.map((p) => (
+              <Link
+                key={p.id}
+                to={`/app/programs/${p.id}`}
+                className="block rw-card overflow-hidden p-0"
+                data-testid={`home-featured-${p.id}`}
+              >
+                <img
+                  src={p.thumbnail_url || p.banner_url || FALLBACK_BANNER}
+                  alt=""
+                  className="h-36 w-full object-cover"
+                />
+                <div className="p-4">
+                  <p className="rw-eyebrow">
+                    {p.level != null ? `Level ${p.level}` : "Program"}
+                  </p>
+                  <h3 className="mt-1 rw-serif text-xl">{p.name}</h3>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {p.short_description || p.description || ""}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
         </section>
       )}
     </div>
