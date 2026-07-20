@@ -944,3 +944,19 @@ User reported the "Payment could not be completed" screen from Razorpay Checkout
 
 ### Tests
 - `/app/test_reports/iteration_33.json` — 10/10 backend pytests PASSED. Covers plan cache reuse, mock-mode verify materialisation idempotency, cross-path (verify + webhook) dedup, all regressions (subscription/me, cancel, free enrol, one-time /order+/verify).
+
+---
+## 2026-02-20 (iter34) — Home + Auto-Certificate UX Refresh
+
+### 4 changes bundled per user request
+1. **Featured programs on Home** — `Home.jsx` now renders ALL admin-flagged programs (`is_featured=true`) in a responsive 2-col grid; used to only show the first one.
+2. **Home banner** — `<ActiveBanners placement="home" />` was already wired; verified end-to-end (create banner in admin → shows on home).
+3. **Activity meter — manual button REMOVED** — the "Mark today's session" button (`home-log-session-btn`) is gone. Backend already auto-logs a session via `activity_meter.log_session(source="module_complete")` when the user completes a module (called from `program_engine.mark_module_completed`). Replaced button with a `home-meter-info` explainer.
+4. **Certificate flow**
+   - `Certificate.jsx` fully rewritten — now fetches real data from `GET /api/certificates/me/{id}` (previously used mock `PROGRAMS` from `@/mock/data`). Shows program_name, completion_date, certificate_number, verification_number, user_name, membership_id.
+   - **New page**: `MyCertificates.jsx` at `/app/certificates` — grid of all issued certs from `GET /api/certificates/me`, empty state, per-row detail.
+   - `Profile.jsx` "Certificates" nav now points to `/app/certificates` (was hardcoded to `/app/certificate/inner-peace`).
+   - **Backend was already correct**: `issue_certificate_if_eligible` runs after every `complete_module` call and is idempotent (dedups on user_membership_id + program_id + status='issued').
+
+### Tests
+- `/app/test_reports/iteration_34.json` — 11/11 backend pytests PASSED (auto-cert issuance, activity_sessions auto-log, idempotency, /api/certificates/me list + detail) + 100% frontend flow verified in-browser (home banner + featured grid + meter explainer + my-certs empty→populated → detail).
