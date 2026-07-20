@@ -1,0 +1,35 @@
+{
+  "summary": "iter35 — end-to-end verified the new Certificate PDF download feature. Backend: 7/7 pytest PASSED in test_iter35_cert_pdf_download.py covering (a) 401 unauth, (b) 404 unknown cert id, (c) 404 for a foreign cert (created a second dummy tester via POST /api/admin/users), (d) 200 with Content-Type=application/pdf + Content-Disposition inline filename containing certificate_number + body starts with %PDF and > 1500 bytes (~2.6KB), (e) pdfplumber-verified PDF text contains program_name, user_name (QA Tester Email), membership_id (RW951682), certificate_number (TEST-CERT-4DFB8D03B6), verification_number and completion date, (f) idempotency — 2 consecutive downloads produce PDFs with identical extracted text (raw bytes differ by 0-2 bytes only for the CreationDate stamp), (g) regression — JSON GET /api/certificates/me/{id} still returns all fields and no _id leak. Frontend E2E (mobile 390x844) logged in as qa-tester@example.com, navigated to /app/certificate/{cert_id}, verified cert-download-btn is visible in a 2-col grid next to cert-share-btn, all data-testids render correctly (cert-user-name='QA Tester Email', cert-program-name='test-iter34-prog-1c25f5', cert-completion-date='Completed · 20 July 2026', cert-number='TEST-CERT-4DFB8D03B6', cert-membership='RW951682', verification number visible). Clicking the button fired exactly one GET /api/certificates/me/{id}/pdf that returned 200 application/pdf with Content-Disposition inline; filename=\"RIYORA-Certificate-TEST-CERT-4DFB8D03B6.pdf\". A real browser download was captured via page.expect_download — suggested_filename matches the response filename, file is 2638 bytes and starts with %PDF. Share button + back nav + issue-date footer remain intact — no regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter35_cert_pdf_download.py",
+    "/app/test_reports/pytest/iter35.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "app/services/certificate_pdf.py is a clean, self-contained ReportLab canvas renderer (~165 lines, well under the 700-line limit). No external HTML→PDF pipeline needed and no extra system deps — good ops choice.",
+    "app/routes/certificates.py::download_my_certificate_pdf correctly filters by BOTH id and user_membership_id so a valid-id-belonging-to-someone-else returns 404 (verified). Filename generation sanitises '/' in cert# — nice defence.",
+    "Certificate.jsx::downloadPdf uses axios responseType='blob', creates a Blob URL, triggers <a download>, then revokes the URL after 4s — matches best practice. The button is disabled while `downloading` is true, preventing double-click abuse.",
+    "MINOR polish (not a bug): the endpoint sets `Cache-Control: private, max-age=60` which means repeated clicks within 60s may be served from the browser cache and skip the backend. For a landscape-A4 static PDF this is fine (idempotent output) but the frontend does not send `Cache-Control: no-cache` on the axios call. Consider whether that's desired for admin-issued cert edits — if an admin updates program_name after issuance the user could see stale text for up to 60s.",
+    "MINOR: render_certificate_pdf does not enforce a maximum length on program_name / user_name — an extremely long program name (>60 chars) would overflow the centred draw and clip against the border. Not a blocker for current data but worth an ellipsis/shrink-to-fit later.",
+    "NIT: PDF metadata (Author=anonymous, Title=untitled) is left at ReportLab defaults. Setting c.setAuthor('RIYORA Wellness') / c.setTitle(f'Certificate {cert_number}') would make the file feel more polished when opened in Adobe Reader / Preview.",
+    "The 'Preparing…' spinner label was not observed during Playwright interaction because the small PDF renders in <200ms end-to-end — the loading state is correctly wired but too fast to catch. Not a bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter35_cert_pdf_download.py (new)"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (all download + regression checks passed)"},
+  "test_credentials": "Admin 9999999999/Admin@12345 (mobile+password). Dummy qa-tester@example.com/tester123 (email fallback login via POST /api/auth/login). Foreign-cert test creates an ad-hoc second dummy user via POST /api/admin/users each run.",
+  "seed_data_creation": "The 404-foreign-cert test creates a fresh dummy tester (qa-tester2-iter35-<hex>@example.com / tester123) via /api/admin/users each run. These accumulate — recommend cleaning via Danger Zone or admin UI eventually. No other seed data added; test reuses the cert from iter34 (id=eeab0a3a-5dbd-4eaa-9bae-fba73ae09f2b, cert#=TEST-CERT-4DFB8D03B6).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run this iter's suite with: `REACT_APP_BACKEND_URL=<url> python -m pytest backend/tests/test_iter35_cert_pdf_download.py -v -n 0 --junitxml=/app/test_reports/pytest/iter35.xml`. Requires `pdfplumber` (installed via pip). Depends on qa-tester@example.com having at least one issued cert — iter34 already seeded one (TEST-CERT-4DFB8D03B6). If that cert has been wiped, re-run test_iter34_home_certs_automation.py first, or seed a new one via the admin issue endpoint. Frontend UI-testid convention: `cert-download-btn` (new), `cert-share-btn`, `cert-back-btn`, `cert-user-name`, `cert-program-name`, `cert-completion-date`, `cert-number`, `cert-membership`. The endpoint sets Cache-Control: private, max-age=60 which may serve subsequent downloads from browser cache — factor that into any UI test that expects repeated network hits."
+}

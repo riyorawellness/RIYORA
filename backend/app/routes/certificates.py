@@ -1,10 +1,12 @@
-"""Certificates — user list/get, admin CRUD (issue/revoke)."""
+"""Certificates — user list/get/download, admin CRUD (issue/revoke)."""
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.deps import db, get_current_admin, get_current_user
 from app.models.phase2 import CertificateCreate, CertificateUpdate, PaginatedResponse
 from app.repositories.base import BaseRepository
+from app.services.certificate_pdf import render_certificate_pdf
 
 router = APIRouter(prefix="/certificates", tags=["Certificates"])
 
@@ -40,6 +42,42 @@ async def get_my_certificate(
     if not doc:
         raise HTTPException(404, "Certificate not found")
     return doc
+
+
+@router.get("/me/{certificate_id}/pdf")
+async def download_my_certificate_pdf(
+    certificate_id: str,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    """Generate a landscape-A4 PDF of the certificate on demand and stream it
+    as `application/pdf`. Filename hint uses the certificate_number so
+    the file lands nicely in the user's Downloads folder.
+    """
+    cert = await _repo(database).get_by(
+        {"id": certificate_id, "user_membership_id": current["membership_id"]}
+    )
+    if not cert:
+        raise HTTPException(404, "Certificate not found")
+    user = await database.users.find_one(
+        {"membership_id": current["membership_id"], "deleted_at": None}
+    ) or {}
+    full_name = (cert.get("user_name") or user.get("full_name") or "").strip()
+    pdf_bytes = render_certificate_pdf(
+        cert=cert,
+        user_full_name=full_name,
+        membership_id=current["membership_id"],
+    )
+    safe_num = (cert.get("certificate_number") or certificate_id).replace("/", "_")
+    filename = f"RIYORA-Certificate-{safe_num}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, max-age=60",
+        },
+    )
 
 
 # ------------------------- Admin ------------------------------------------

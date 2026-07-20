@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Loader2, Share2, ShieldCheck } from "lucide-react";
+import { ChevronLeft, Download, Loader2, Share2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { TID } from "@/constants/testIds";
@@ -18,6 +18,7 @@ export default function Certificate() {
   const [cert, setCert] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -31,6 +32,29 @@ export default function Certificate() {
       }
     })();
   }, [id]);
+
+  const downloadPdf = async () => {
+    if (!cert) return;
+    setDownloading(true);
+    try {
+      const { data } = await api.get(`/certificates/me/${cert.id}/pdf`, {
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `RIYORA-Certificate-${cert.certificate_number || cert.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Give the browser a beat to start the save dialog before revoking.
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      toast.error(formatApiError(e, "Could not download PDF"));
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const share = async () => {
     const text = cert
@@ -130,10 +154,26 @@ export default function Certificate() {
               </div>
             </div>
 
-            <div className="mt-6">
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                onClick={downloadPdf}
+                disabled={downloading}
+                className="rw-btn-pill rw-btn-ghost disabled:opacity-60"
+                data-testid="cert-download-btn"
+              >
+                {downloading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Preparing…
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" /> Download PDF
+                  </>
+                )}
+              </button>
               <button
                 onClick={share}
-                className="w-full rw-btn-pill rw-btn-primary"
+                className="rw-btn-pill rw-btn-primary"
                 data-testid="cert-share-btn"
               >
                 <Share2 className="h-4 w-4" /> Share
