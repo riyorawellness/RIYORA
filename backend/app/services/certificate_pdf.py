@@ -48,6 +48,13 @@ def render_certificate_pdf(
     buf = io.BytesIO()
     page_w, page_h = landscape(A4)
     c = canvas.Canvas(buf, pagesize=landscape(A4))
+    # Metadata — shows up in Adobe Reader/Preview title bar and File-Info dialog.
+    c.setAuthor("RIYORA Wellness")
+    c.setCreator("RIYORA Wellness Platform")
+    c.setTitle(
+        f"Certificate {cert.get('certificate_number', '')} — {cert.get('program_name', '')}".strip()
+    )
+    c.setSubject(f"Program completion certificate for {user_full_name}")
 
     # ---------- outer decorative border ----------
     margin = 12 * mm

@@ -960,3 +960,11 @@ User reported the "Payment could not be completed" screen from Razorpay Checkout
 
 ### Tests
 - `/app/test_reports/iteration_34.json` — 11/11 backend pytests PASSED (auto-cert issuance, activity_sessions auto-log, idempotency, /api/certificates/me list + detail) + 100% frontend flow verified in-browser (home banner + featured grid + meter explainer + my-certs empty→populated → detail).
+
+---
+## 2026-02-20 (iter35) — Certificate PDF download
+
+- New `app/services/certificate_pdf.py` (~170 lines, pure ReportLab canvas, no HTML→PDF). Landscape-A4 with gold border, royal header strip, watermark, name/program/completion-date/cert-no/verification. PDF metadata (Author=RIYORA Wellness, Title=Certificate <number> — <program>) for nice display in Reader/Preview.
+- New endpoint `GET /api/certificates/me/{cert_id}/pdf` — auth-gated, 404 on foreign cert, streams `application/pdf` with `Content-Disposition: inline; filename="RIYORA-Certificate-<number>.pdf"`.
+- `Certificate.jsx` — new **Download PDF** button paired with Share in a 2-col grid; axios `responseType: 'blob'` → Blob URL → `<a download>` triggers native browser save.
+- Tests: iter35 → 7/7 backend pytests (auth, 404, content-type, PDF text extraction with pdfplumber, idempotency, no regression) + 100% frontend E2E via Playwright `page.expect_download()`.
