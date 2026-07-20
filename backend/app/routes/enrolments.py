@@ -32,7 +32,6 @@ from app.core.deps import db, get_current_user
 from app.services.payment import (
     FREQUENCY_TO_DAYS,
     cancel_subscription as rzp_cancel_subscription,
-    create_plan as rzp_create_plan,
     create_subscription as rzp_create_subscription,
     fetch_subscription as rzp_fetch_subscription,
     is_mock as rzp_is_mock,
@@ -148,28 +147,27 @@ async def _compute_subscription_amount(
     }
 
 
-async def _get_or_create_plan_id(
-    database: AsyncIOMotorDatabase,
-    program: dict,
-    frequency: str,
-    amount_paise: int,
+async def _get_configured_plan_id(
+    database: AsyncIOMotorDatabase, frequency: str
 ) -> str:
-    """Cache Razorpay plans on programs._razorpay_plans keyed by freq:amount."""
-    cache = program.get("_razorpay_plans") or {}
-    key = _plan_cache_key(frequency, amount_paise)
-    if key in cache and cache[key]:
-        return cache[key]
-    plan = rzp_create_plan(
-        amount_paise=amount_paise,
-        frequency=frequency,
-        program_name=program.get("name") or "Subscription",
-    )
-    plan_id = plan["id"]
-    cache[key] = plan_id
-    await database.programs.update_one(
-        {"id": program["id"]},
-        {"$set": {"_razorpay_plans": cache, "updated_at": _iso()}},
-    )
+    """Look up the Razorpay Plan ID for the given frequency from
+    `app_settings`. Admin pre-creates the 4 plans on the Razorpay dashboard
+    and pastes the plan_ids into Admin → Payment Settings → Subscription Plans.
+
+    Key convention: `razorpay_plan_id_<frequency>` — e.g.
+    `razorpay_plan_id_monthly`, `razorpay_plan_id_quarterly`,
+    `razorpay_plan_id_half_yearly`, `razorpay_plan_id_yearly`.
+    """
+    key = f"razorpay_plan_id_{frequency}"
+    row = await database.app_settings.find_one({"key": key, "deleted_at": None})
+    plan_id = (row or {}).get("value")
+    if not plan_id or not isinstance(plan_id, str) or not plan_id.startswith("plan_"):
+        raise HTTPException(
+            500,
+            f"Razorpay plan for '{frequency}' is not configured. "
+            f"Admin → Payment Settings → Subscription Plans and paste the "
+            f"plan_id from the Razorpay dashboard.",
+        )
     return plan_id
 
 
@@ -298,11 +296,11 @@ async def subscription_init(
         payload={"frequency": frequency, "amount_paise": amount_paise, "breakdown": breakdown},
     )
     try:
-        plan_id = await _get_or_create_plan_id(database, program, frequency, amount_paise)
+        plan_id = await _get_configured_plan_id(database, frequency)
         await _dbg(
             database, source="backend", stage="init.plan_ok",
             program_id=body.program_id, membership_id=membership_id,
-            payload={"plan_id": plan_id, "cached": plan_id in (program.get("_razorpay_plans") or {}).values()},
+            payload={"plan_id": plan_id, "source": "app_settings"},
         )
         subscription = rzp_create_subscription(
             plan_id=plan_id,
