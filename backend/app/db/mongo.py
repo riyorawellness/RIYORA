@@ -134,6 +134,24 @@ async def create_indexes() -> None:
     # razorpay_payment_id may be null; sparse index to keep uniqueness only when set
     await db.program_purchases.create_index("razorpay_payment_id", sparse=True)
 
+    # Dynamic Razorpay Plan cache — one plan per (program, frequency, amount).
+    # Guarantees /payments/subscription/init never creates duplicate Razorpay
+    # plans under concurrency (two users hitting Subscribe at the same time).
+    await db.subscription_plans_cache.create_index(
+        [("program_id", 1), ("frequency", 1), ("amount_paise", 1)],
+        unique=True,
+        partialFilterExpression={"deleted_at": None},
+        name="uniq_program_freq_amount_live",
+    )
+    # Idempotent purchase materialisation from /verify + webhook: dedup on
+    # (subscription_id, subscription_cycle) so both code paths converge on
+    # the same purchase row without duplicating.
+    await db.program_purchases.create_index(
+        [("subscription_id", 1), ("subscription_cycle", 1)],
+        sparse=True,
+        name="idx_sub_cycle",
+    )
+
     # ----- Phase 6 (Refer & Earn) -----
     await db.activity_sessions.create_index(
         [("user_membership_id", 1), ("subscription_purchase_id", 1)]

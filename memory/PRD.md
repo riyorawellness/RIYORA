@@ -921,3 +921,26 @@ notification so users are never left guessing why access didn't unlock.
 ### Bug fix bundled
 - `App.js` had a leftover duplicate closing block from a prior agent that
   was causing a compile error (`Unexpected token (153:0)`). Removed.
+
+---
+## 2026-02-20 (iter33) — REVERTED to dynamic Razorpay plans + Webhook-independent verify
+
+### Why reverted?
+User reported the "Payment could not be completed" screen from Razorpay Checkout persisted even AFTER the mandate was authenticated + Rs.1 first debit succeeded (confirmed via Razorpay SMS). Root cause is a Razorpay Checkout SDK timing quirk, NOT related to plan-creation strategy. User asked to revert plan changes AND add a real fix at the same time — so both were bundled into iter33.
+
+### Backend (dynamic + webhook-independent)
+- `payment.py::create_plan()` restored + new helper `fetch_subscription_payments(sid)` that lists captured payments for a subscription via Razorpay SDK (falls back through both `subscription.fetch_payments` and `payment.all({subscription_id:...})`).
+- `enrolments.py::_get_or_create_plan(program, frequency, amount_paise)` — race-safe cached plan creation via `subscription_plans_cache` collection with unique index on `(program_id, frequency, amount_paise)` where `deleted_at:None`.
+- `enrolments.py::subscription_verify` — CRITICAL FIX: when NOT in mock mode AND `paid_count >= 1` AND no local purchase yet, fetches the actual captured payment from Razorpay and materialises the `program_purchases` row *immediately*. No longer depends on the merchant's webhook plumbing.
+- `_materialise_subscription_purchase` — now dedups on `(subscription_id, subscription_cycle)` so webhook + verify paths converge on the same purchase row without duplicating.
+- `mongo.py::create_indexes()` — added `uniq_program_freq_amount_live` (plan cache) + `idx_sub_cycle` (purchase dedup) for fresh deploys.
+
+### Frontend
+- `SubscriptionCheckoutModal.jsx` — poll window increased 8×2s (16s) → **20×2s (40s)**. Timeout copy now references the SMS-success case: "If you received an SMS saying the payment was successful, your access will activate automatically within a few minutes."
+- `AdminPaymentSettings.jsx` — Subscription plan IDs card REMOVED (dynamic creation is back).
+
+### DB cleanup
+- Deleted stale `razorpay_plan_id_<freq>` keys from `app_settings`.
+
+### Tests
+- `/app/test_reports/iteration_33.json` — 10/10 backend pytests PASSED. Covers plan cache reuse, mock-mode verify materialisation idempotency, cross-path (verify + webhook) dedup, all regressions (subscription/me, cancel, free enrol, one-time /order+/verify).

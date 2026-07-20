@@ -564,7 +564,7 @@ async def _materialise_subscription_purchase(
 
     # Cross-check by (subscription_id, cycle) so a webhook arriving after
     # `subscription_verify` has already materialised the row doesn't create
-    # a duplicate purchase. Backfill payment_id if verify used a placeholder.
+    # a duplicate purchase.
     if subscription_row.get("subscription_id") and cycle_index is not None:
         by_cycle = await database.program_purchases.find_one({
             "subscription_id": subscription_row["subscription_id"],
@@ -572,14 +572,6 @@ async def _materialise_subscription_purchase(
             "deleted_at": None,
         })
         if by_cycle:
-            if (
-                razorpay_payment_id
-                and by_cycle.get("razorpay_payment_id") != razorpay_payment_id
-                and str(by_cycle.get("razorpay_payment_id", "")).startswith("pay_")  # only backfill placeholders
-                is False
-            ):
-                # keep the earlier value; nothing to do
-                pass
             by_cycle.pop("_id", None)
             return by_cycle
 
