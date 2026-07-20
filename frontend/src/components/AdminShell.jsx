@@ -26,6 +26,7 @@ const NAV = [
   { to: "/admin/audit", label: "Audit log", icon: ScrollText, testid: "admin-nav-audit" },
   { to: "/admin/qa", label: "QA / BRV", icon: ShieldCheck, testid: "admin-nav-qa" },
   { to: "/admin/qa/live-check", label: "Live Check", icon: Activity, testid: "admin-nav-livecheck" },
+  { to: "/admin/qa/sub-debug",  label: "Sub Debug",  icon: Activity, testid: "admin-nav-subdebug" },
 ];
 
 /**

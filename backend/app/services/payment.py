@@ -162,6 +162,7 @@ def create_plan(
         },
         "notes": {"frequency": frequency},
     }
+    logger.info("[RZP.plan.create] payload=%s", payload)
     client = _client()
     if client is None:
         return {
@@ -172,6 +173,7 @@ def create_plan(
             "is_mock": True,
         }
     plan = client.plan.create(payload)
+    logger.info("[RZP.plan.create] response id=%s status=%s", plan.get("id"), plan.get("status"))
     plan["is_mock"] = False
     return plan
 
@@ -182,12 +184,7 @@ def create_subscription(
     notes: dict[str, Any] | None = None,
     customer_notify: int = 1,
 ) -> dict[str, Any]:
-    """Create a Razorpay Subscription bound to `plan_id`.
-
-    `total_count` is clamped to a UPI-safe value so `expire_at` stays under
-    NPCI's max mandate horizon. Once exhausted, subscription.completed fires
-    and the user can subscribe again.
-    """
+    """Create a Razorpay Subscription bound to `plan_id`."""
     total_count = FREQUENCY_TO_TOTAL_COUNT.get(frequency, 12)
     payload: dict[str, Any] = {
         "plan_id": plan_id,
@@ -196,6 +193,7 @@ def create_subscription(
         "customer_notify": customer_notify,
         "notes": notes or {},
     }
+    logger.info("[RZP.subscription.create] payload=%s", payload)
     client = _client()
     if client is None:
         sid = f"mock_sub_{uuid.uuid4().hex[:16]}"
@@ -210,6 +208,12 @@ def create_subscription(
             "is_mock": True,
         }
     sub = client.subscription.create(payload)
+    logger.info(
+        "[RZP.subscription.create] response id=%s status=%s short_url=%s expire_by=%s "
+        "payment_method=%s auth_attempts=%s",
+        sub.get("id"), sub.get("status"), sub.get("short_url"), sub.get("expire_by"),
+        sub.get("payment_method"), sub.get("auth_attempts"),
+    )
     sub["is_mock"] = False
     return sub
 
@@ -220,9 +224,14 @@ def fetch_subscription(subscription_id: str) -> dict[str, Any] | None:
     if client is None:
         return None
     try:
-        return client.subscription.fetch(subscription_id)
+        s = client.subscription.fetch(subscription_id)
+        logger.info(
+            "[RZP.subscription.fetch] id=%s status=%s paid_count=%s payment_method=%s",
+            s.get("id"), s.get("status"), s.get("paid_count"), s.get("payment_method"),
+        )
+        return s
     except Exception as exc:  # noqa: BLE001
-        logger.warning("fetch_subscription(%s) failed: %s", subscription_id, exc)
+        logger.warning("[RZP.subscription.fetch] %s failed: %s", subscription_id, exc)
         return None
 
 

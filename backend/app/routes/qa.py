@@ -170,15 +170,13 @@ async def admin_failed_subscriptions(
     database: AsyncIOMotorDatabase = Depends(db),
     _admin: dict = Depends(get_current_admin),
 ):
-    """List subscriptions currently in a failure state (halted / pending) so
-    admins can proactively follow up with the user. Sorted newest-first."""
+    """List subscriptions currently in a failure state (halted / pending)."""
     limit = max(1, min(int(limit or 50), 200))
     items = []
     async for r in database.subscriptions.find(
         {"status": {"$in": ["halted", "pending"]}, "deleted_at": None}
     ).sort("updated_at", -1).limit(limit):
         r.pop("_id", None)
-        # Enrich with the user's name/email if available.
         user = await database.users.find_one(
             {"membership_id": r.get("user_membership_id"), "deleted_at": None},
             {"full_name": 1, "email": 1, "mobile": 1, "_id": 0},
@@ -186,6 +184,32 @@ async def admin_failed_subscriptions(
         r["user"] = user or {}
         items.append(r)
     return {"items": items, "count": len(items)}
+
+
+@router.get("/sub-debug")
+async def admin_sub_debug(
+    subscription_id: str | None = None,
+    membership_id: str | None = None,
+    program_id: str | None = None,
+    limit: int = 200,
+    database: AsyncIOMotorDatabase = Depends(db),
+    _admin: dict = Depends(get_current_admin),
+):
+    """Chronological trace of a subscription-flow attempt across all three
+    sources (backend / frontend / webhook). Filter by any of subscription_id
+    / membership_id / program_id, or omit filters for the latest 200 events."""
+    limit = max(1, min(int(limit or 200), 500))
+    q: dict = {}
+    if subscription_id: q["subscription_id"] = subscription_id
+    if membership_id:   q["membership_id"]   = membership_id
+    if program_id:      q["program_id"]      = program_id
+
+    events = []
+    async for e in database.sub_debug_events.find(q).sort("created_at", -1).limit(limit):
+        e.pop("_id", None)
+        events.append(e)
+    events.reverse()  # chronological ascending
+    return {"events": events, "count": len(events), "filter": q}
 
 
 @router.get("/live-check/webhook-events")

@@ -291,8 +291,19 @@ async def subscription_init(
     # ------------------------------------------------------------------
     # Fresh plan + subscription on Razorpay.
     # ------------------------------------------------------------------
+    from app.services.sub_debug import log_event as _dbg
+    await _dbg(
+        database, source="backend", stage="init.start",
+        program_id=body.program_id, membership_id=membership_id,
+        payload={"frequency": frequency, "amount_paise": amount_paise, "breakdown": breakdown},
+    )
     try:
         plan_id = await _get_or_create_plan_id(database, program, frequency, amount_paise)
+        await _dbg(
+            database, source="backend", stage="init.plan_ok",
+            program_id=body.program_id, membership_id=membership_id,
+            payload={"plan_id": plan_id, "cached": plan_id in (program.get("_razorpay_plans") or {}).values()},
+        )
         subscription = rzp_create_subscription(
             plan_id=plan_id,
             frequency=frequency,
@@ -302,10 +313,30 @@ async def subscription_init(
                 "program_name": (program.get("name") or "")[:80],
             },
         )
+        await _dbg(
+            database, source="backend", stage="init.subscription_ok",
+            subscription_id=subscription.get("id"), program_id=body.program_id,
+            membership_id=membership_id,
+            payload={
+                "id": subscription.get("id"),
+                "status": subscription.get("status"),
+                "short_url": subscription.get("short_url"),
+                "total_count": subscription.get("total_count"),
+                "expire_by": subscription.get("expire_by"),
+                "payment_method": subscription.get("payment_method"),
+                "auth_attempts": subscription.get("auth_attempts"),
+                "created_at": subscription.get("created_at"),
+            },
+        )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.exception("Razorpay subscription.create failed: %s", exc)
+        await _dbg(
+            database, source="backend", stage="init.error", ok=False,
+            program_id=body.program_id, membership_id=membership_id,
+            error={"type": type(exc).__name__, "message": str(exc), "args": [str(a) for a in exc.args]},
+        )
         raise HTTPException(502, _friendly_razorpay_error(exc)) from exc
 
     doc = {
@@ -612,3 +643,36 @@ async def my_subscriptions(
         r.pop("_id", None)
         items.append(r)
     return {"items": items, "total": len(items)}
+
+
+class SubDebugLogRequest(BaseModel):
+    """Frontend-side telemetry from SubscriptionCheckoutModal. Any auth'd user
+    can post; admin reviews aggregated events on /admin/qa/sub-debug."""
+    stage: str = Field(..., min_length=1, max_length=80)
+    subscription_id: str | None = None
+    program_id: str | None = None
+    ok: bool = True
+    message: str = ""
+    payload: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
+
+
+@router.post("/payments/subscription/debug-log", status_code=204)
+async def subscription_debug_log(
+    body: SubDebugLogRequest,
+    database: AsyncIOMotorDatabase = Depends(db),
+    current: dict = Depends(get_current_user),
+):
+    """Client-side telemetry sink. The frontend fires this on every state
+    transition (init request, Razorpay opened, payment.failed, etc.) so
+    the admin can trace what happened without needing DevTools on the
+    user's phone. Fire-and-forget from the client."""
+    from app.services.sub_debug import log_event as _dbg
+    await _dbg(
+        database, source="frontend", stage=body.stage,
+        subscription_id=body.subscription_id, program_id=body.program_id,
+        membership_id=current.get("membership_id"),
+        ok=body.ok, message=body.message,
+        payload=body.payload, error=body.error,
+    )
+    return None

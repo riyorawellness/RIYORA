@@ -50,6 +50,7 @@ import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminReports from "@/pages/AdminReports";
 import AdminQA from "@/pages/AdminQA";
 import AdminLiveCheck from "@/pages/AdminLiveCheck";
+import AdminSubDebug from "@/pages/AdminSubDebug";
 import AdminPrograms from "@/pages/AdminPrograms";
 import AdminProgramModules from "@/pages/AdminProgramModules";
 import AdminMedia from "@/pages/AdminMedia";
@@ -146,6 +147,10 @@ function App() {
     </AuthProvider>
     </ErrorBoundary>
   );
+}
+
+export default App;
+);
 }
 
 export default App;

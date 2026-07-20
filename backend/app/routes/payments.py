@@ -651,25 +651,28 @@ async def reconcile_order(
 async def _handle_subscription_webhook(
     database: AsyncIOMotorDatabase, event: str, payload: dict
 ) -> None:
-    """Handle subscription.* webhook events from Razorpay.
-
-    - subscription.authenticated → mandate approved. Nothing to do until charge.
-    - subscription.charged       → a cycle was successfully charged →
-                                    materialise a program_purchases row (idempotent).
-    - subscription.halted        → payments have failed enough that Razorpay
-                                    stopped retrying. Mark status; access lapses
-                                    when the current purchase expires.
-    - subscription.cancelled     → mandate cancelled (user or us).
-    - subscription.completed     → all total_count cycles charged.
-    - subscription.pending       → renewal charge failed once; will retry.
-    """
+    """Handle subscription.* webhook events from Razorpay."""
     from app.routes.enrolments import _materialise_subscription_purchase
+    from app.services.sub_debug import log_event as _dbg
 
     body = (payload.get("payload") or {})
     sub_entity = (body.get("subscription") or {}).get("entity") or {}
     pay_entity = (body.get("payment") or {}).get("entity") or {}
 
     subscription_id = sub_entity.get("id") or pay_entity.get("subscription_id")
+    await _dbg(
+        database, source="webhook", stage=event,
+        subscription_id=subscription_id,
+        payload={
+            "sub_status": sub_entity.get("status"),
+            "paid_count": sub_entity.get("paid_count"),
+            "payment_id": pay_entity.get("id"),
+            "payment_status": pay_entity.get("status"),
+            "payment_method": pay_entity.get("method"),
+            "error_description": pay_entity.get("error_description"),
+            "error_reason": pay_entity.get("error_reason"),
+        },
+    )
     if not subscription_id:
         logger.warning("Subscription webhook %s missing subscription_id", event)
         return

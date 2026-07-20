@@ -10,7 +10,26 @@ import {
 import { toast } from "sonner";
 
 import { paymentsApi, loadRazorpayScript } from "@/services/payments";
-import { formatApiError } from "@/lib/api";
+import api, { formatApiError } from "@/lib/api";
+
+// Fire-and-forget diagnostic logger. Every state transition of the
+// subscription checkout is captured backend-side so we can trace what
+// happens on the user's phone without DevTools access.
+function debugLog(stage, extra = {}) {
+  try {
+    api.post("/payments/subscription/debug-log", {
+      stage,
+      subscription_id: extra.subscription_id ?? null,
+      program_id: extra.program_id ?? null,
+      ok: extra.ok ?? true,
+      message: extra.message ?? "",
+      payload: extra.payload ?? null,
+      error: extra.error ?? null,
+    }).catch(() => {});
+  } catch (_) {
+    /* ignore — logging must never break the flow */
+  }
+}
 
 /**
  * SubscriptionCheckoutModal — Razorpay AutoPay / UPI mandate checkout.
@@ -36,14 +55,37 @@ export default function SubscriptionCheckoutModal({
     if (!open || !programId) return;
     setStatus("loading");
     setError("");
+    debugLog("modal.open", { program_id: programId });
     (async () => {
       try {
         const data = await paymentsApi.subscriptionInit(programId);
         setSession(data);
         setStatus("ready");
+        debugLog("init.response_ok", {
+          program_id: programId,
+          subscription_id: data.subscription_id,
+          payload: {
+            is_mock: data.is_mock,
+            status: data.status,
+            plan_id: data.plan_id,
+            amount_paise: data.amount_paise,
+            short_url: data.short_url,
+            reused: data.reused,
+          },
+        });
       } catch (e) {
-        setError(formatApiError(e, "Could not initialise subscription."));
+        const msg = formatApiError(e, "Could not initialise subscription.");
+        setError(msg);
         setStatus("error");
+        debugLog("init.response_error", {
+          program_id: programId,
+          ok: false,
+          message: msg,
+          error: {
+            status: e?.response?.status,
+            data: e?.response?.data,
+          },
+        });
       }
     })();
   }, [open, programId]);
@@ -73,19 +115,27 @@ export default function SubscriptionCheckoutModal({
 
   const pollVerify = async () => {
     setStatus("processing");
-    // Poll up to 8 × 2s = 16s to let subscription.charged webhook arrive.
+    debugLog("poll.start", { subscription_id: session.subscription_id });
     for (let attempt = 0; attempt < 8; attempt++) {
       try {
         const res = await paymentsApi.subscriptionVerify(session.subscription_id);
+        debugLog("poll.tick", {
+          subscription_id: session.subscription_id,
+          payload: { attempt: attempt + 1, ...res },
+        });
         const done = res.purchase_id || res.status === "active";
         if (done && res.purchase_id) {
           setStatus("success");
           toast.success("Mandate active — first cycle charged.");
+          debugLog("poll.success", { subscription_id: session.subscription_id, payload: res });
           onSuccess?.(res);
           return;
         }
-      } catch (_) {
-        /* transient — retry */
+      } catch (e) {
+        debugLog("poll.error", {
+          subscription_id: session.subscription_id, ok: false,
+          error: { status: e?.response?.status, data: e?.response?.data },
+        });
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
@@ -93,6 +143,7 @@ export default function SubscriptionCheckoutModal({
     setError(
       "The mandate could not be confirmed. Common reasons: you cancelled the UPI approval, your bank declined the mandate, or the app timed out. Please tap Subscribe again and use a different UPI ID if the issue continues.",
     );
+    debugLog("poll.timeout", { subscription_id: session.subscription_id, ok: false });
   };
 
   const runLive = async () => {
@@ -137,21 +188,41 @@ export default function SubscriptionCheckoutModal({
       recurring: 1,
       method: { upi: true, card: true, netbanking: false, wallet: false },
       retry: { enabled: true, max_count: 4 },
-      handler: async () => {
+      handler: async (resp) => {
+        debugLog("razorpay.handler_success", {
+          subscription_id: session.subscription_id,
+          payload: {
+            razorpay_payment_id: resp?.razorpay_payment_id,
+            razorpay_subscription_id: resp?.razorpay_subscription_id,
+          },
+        });
         pollVerify();
       },
       modal: {
-        // If the user closes the modal mid-mandate, still reconcile — the
-        // mandate could have been authenticated & first cycle charged even
-        // if Checkout showed a failure state.
         ondismiss: () => {
+          debugLog("razorpay.modal_dismissed", {
+            subscription_id: session.subscription_id,
+            payload: { at_status: status },
+          });
           if (status === "processing") return;
           pollVerify();
         },
       },
     };
+    debugLog("razorpay.opts_built", {
+      subscription_id: session.subscription_id,
+      payload: {
+        key: opts.key,
+        subscription_id: opts.subscription_id,
+        recurring: opts.recurring,
+        method: opts.method,
+        retry: opts.retry,
+        // ⚠ diagnostic: UA + platform tells us if the phone browser is
+        // rejecting the iframe / running out of memory / etc.
+        ua: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      },
+    });
     const rzp = new Rzp(opts);
-    // Surface Razorpay's real error instead of silently timing out.
     rzp.on("payment.failed", (resp) => {
       const err = resp?.error || {};
       const parts = [
@@ -164,8 +235,22 @@ export default function SubscriptionCheckoutModal({
       const msg = parts.length ? parts.join(" · ") : "Razorpay declined the payment.";
       setStatus("ready");
       setError(msg);
+      debugLog("razorpay.payment_failed", {
+        subscription_id: session.subscription_id,
+        ok: false,
+        message: msg,
+        error: {
+          code: err.code,
+          description: err.description,
+          reason: err.reason,
+          source: err.source,
+          step: err.step,
+          metadata: err.metadata,
+        },
+      });
       console.error("[Razorpay Subscription] payment.failed:", resp);
     });
+    debugLog("razorpay.open_called", { subscription_id: session.subscription_id });
     rzp.open();
   };
 
